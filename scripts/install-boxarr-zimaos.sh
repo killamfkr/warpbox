@@ -220,12 +220,28 @@ services:
       - ${RCLONE_APPDATA}/cache:/cache
       - /etc/fuse.conf:/etc/fuse.conf:ro
       - ${TORBOX_MOUNT}:/data
-    command: >
-      mount torbox: /data
-      --allow-other --allow-non-empty --dir-cache-time 1h
-      --vfs-cache-mode full --vfs-cache-max-size 50G
-      --uid ${PUID} --gid ${PGID} --umask 002
-      --cache-dir /cache --log-level INFO
+    command:
+      - mount
+      - torbox:
+      - /data
+      - --allow-other
+      - --allow-non-empty
+      - --dir-cache-time
+      - 1h
+      - --vfs-cache-mode
+      - full
+      - --vfs-cache-max-size
+      - 50G
+      - --uid
+      - "${PUID}"
+      - --gid
+      - "${PGID}"
+      - --umask
+      - "002"
+      - --cache-dir
+      - /cache
+      - --log-level
+      - INFO
     networks: [boxarr-net]
 
   boxarr:

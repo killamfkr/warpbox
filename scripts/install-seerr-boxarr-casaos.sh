@@ -225,15 +225,53 @@ services:
         target: /data
         bind:
           propagation: rshared
-    command: >
-      mount torbox: /data
-      --allow-other --allow-non-empty --dir-cache-time 1h
-      --vfs-cache-mode full --vfs-cache-max-size 50G --vfs-cache-max-age 168h
-      --vfs-read-ahead 256M --vfs-read-chunk-size 32M --vfs-read-chunk-size-limit 1G
-      --buffer-size 64M --vfs-fast-fingerprint --no-checksum --no-modtime
-      --transfers 4 --checkers 2 --tpslimit 5 --tpslimit-burst 5 --low-level-retries 3
-      --attr-timeout 24h --umask 002 --uid ${BOXARR_PUID} --gid ${BOXARR_PGID}
-      --cache-dir /cache --log-level INFO
+    command:
+      - mount
+      - torbox:
+      - /data
+      - --allow-other
+      - --allow-non-empty
+      - --dir-cache-time
+      - 1h
+      - --vfs-cache-mode
+      - full
+      - --vfs-cache-max-size
+      - 50G
+      - --vfs-cache-max-age
+      - 168h
+      - --vfs-read-ahead
+      - 256M
+      - --vfs-read-chunk-size
+      - 32M
+      - --vfs-read-chunk-size-limit
+      - 1G
+      - --buffer-size
+      - 64M
+      - --vfs-fast-fingerprint
+      - --no-checksum
+      - --no-modtime
+      - --transfers
+      - "4"
+      - --checkers
+      - "2"
+      - --tpslimit
+      - "5"
+      - --tpslimit-burst
+      - "5"
+      - --low-level-retries
+      - "3"
+      - --attr-timeout
+      - 24h
+      - --umask
+      - "002"
+      - --uid
+      - "${BOXARR_PUID}"
+      - --gid
+      - "${BOXARR_PGID}"
+      - --cache-dir
+      - /cache
+      - --log-level
+      - INFO
     networks: [boxarr-media]
 
   prowlarr:
