@@ -43,7 +43,8 @@ PROWLARR_APPDATA="/DATA/AppData/prowlarr"
 SEERR_APPDATA="/DATA/AppData/seerr"
 TORBOX_MOUNT="/DATA/Media/torbox"
 LIBRARY_ROOT="/DATA/Media/library"
-INSTALL_SEERR="${INSTALL_SEERR:-1}"
+SEERR_UID="${SEERR_UID:-1000}"
+SEERR_GID="${SEERR_GID:-1000}"
 TZ="${TZ:-Etc/UTC}"
 BOXARR_PORT="${BOXARR_PORT:-8181}"
 PROWLARR_PORT="${PROWLARR_PORT:-9696}"
@@ -160,8 +161,10 @@ mkdir -p "${INSTALL_DIR}" "${BOXARR_APPDATA}" "${RCLONE_APPDATA}/cache" \
   "${TORBOX_MOUNT}" "${LIBRARY_ROOT}/movies" "${LIBRARY_ROOT}/tv" "${LIBRARY_ROOT}/anime"
 
 chown -R "${PUID}:${PGID}" "${BOXARR_APPDATA}" "${RCLONE_APPDATA}" \
-  "${PROWLARR_APPDATA}" "${SEERR_APPDATA}" "${TORBOX_MOUNT}" "${LIBRARY_ROOT}"
-chmod -R u+rwX,g+rwX "${LIBRARY_ROOT}" "${TORBOX_MOUNT}" "${RCLONE_APPDATA}"
+  "${PROWLARR_APPDATA}" "${TORBOX_MOUNT}" "${LIBRARY_ROOT}"
+# Seerr image always runs as node (uid 1000) — not Plex PUID
+chown -R "${SEERR_UID}:${SEERR_GID}" "${SEERR_APPDATA}"
+chmod -R u+rwX,g+rwX "${LIBRARY_ROOT}" "${TORBOX_MOUNT}" "${RCLONE_APPDATA}" "${SEERR_APPDATA}"
 
 FUSE_CONF="/etc/fuse.conf"
 if [[ -f "${FUSE_CONF}" ]]; then
@@ -297,6 +300,9 @@ done
 sed -i "s|__PROWLARR_KEY__|${PROWLARR_KEY}|" "${INSTALL_DIR}/docker-compose.yml"
 
 echo "==> Starting all containers"
+# Ensure Seerr can write /app/config (runs as node uid 1000)
+chown -R "${SEERR_UID}:${SEERR_GID}" "${SEERR_APPDATA}"
+chmod -R u+rwX,g+rwX "${SEERR_APPDATA}"
 DC up -d
 sleep 8
 
