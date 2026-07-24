@@ -10,7 +10,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/mainlink0435/warpbox/main/scripts/install-seerr-boxarr-casaos.sh | sudo TORBOX_API_KEY='...' TMDB_API_KEY='...' bash
 #
 # Optional env vars:
-#   BOXARR_INSTALL_DIR       default: /opt/boxarr-stack
+#   BOXARR_INSTALL_DIR       default: /DATA/AppData/boxarr-stack
 #   BOXARR_DATA_ROOT         default: /DATA/AppData
 #   BOXARR_MEDIA_ROOT        default: /DATA/Media
 #   BOXARR_PUID / BOXARR_PGID default: first non-root user or 1000
@@ -19,7 +19,7 @@
 
 set -euo pipefail
 
-BOXARR_INSTALL_DIR="${BOXARR_INSTALL_DIR:-/opt/boxarr-stack}"
+BOXARR_INSTALL_DIR="${BOXARR_INSTALL_DIR:-/DATA/AppData/boxarr-stack}"
 BOXARR_DATA_ROOT="${BOXARR_DATA_ROOT:-/DATA/AppData}"
 BOXARR_MEDIA_ROOT="${BOXARR_MEDIA_ROOT:-/DATA/Media}"
 BOXARR_IMAGE="${BOXARR_IMAGE:-ghcr.io/radaiko/boxarr:latest}"
@@ -50,10 +50,23 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
+DOCKER=(docker)
+COMPOSE=(docker compose)
 if ! docker compose version >/dev/null 2>&1; then
-  echo "error: docker compose plugin not found" >&2
+  if command -v docker-compose >/dev/null 2>&1; then
+    COMPOSE=(docker-compose)
+  else
+    echo "error: docker compose plugin not found" >&2
+    exit 1
+  fi
+fi
+
+if ! "${DOCKER[@]}" info >/dev/null 2>&1; then
+  echo "error: cannot talk to docker — try: sudo docker ps" >&2
   exit 1
 fi
+
+dc() { "${COMPOSE[@]}" -f "${BOXARR_INSTALL_DIR}/docker-compose.yml" "$@"; }
 
 if [[ ! -e /dev/fuse ]]; then
   echo "error: /dev/fuse missing — FUSE is required for the TorBox rclone mount" >&2
@@ -258,9 +271,12 @@ networks:
     driver: bridge
 EOF
 
+chmod 755 "${BOXARR_INSTALL_DIR}"
+chmod 644 "${BOXARR_INSTALL_DIR}/docker-compose.yml"
+
 echo "==> Starting Prowlarr (needed for Boxarr search)"
-docker compose -f "${BOXARR_INSTALL_DIR}/docker-compose.yml" pull
-docker compose -f "${BOXARR_INSTALL_DIR}/docker-compose.yml" up -d prowlarr
+dc pull
+dc up -d boxarr-prowlarr
 
 PROWLARR_CONFIG="${PROWLARR_APPDATA}/config.xml"
 echo "==> Waiting for Prowlarr API key"
@@ -284,7 +300,7 @@ fi
 sed -i "s|__PROWLARR_API_KEY__|${PROWLARR_API_KEY}|" "${BOXARR_INSTALL_DIR}/docker-compose.yml"
 
 echo "==> Starting full stack"
-docker compose -f "${BOXARR_INSTALL_DIR}/docker-compose.yml" up -d
+dc up -d
 
 echo "==> Waiting for Boxarr"
 for _ in $(seq 1 36); do
@@ -337,10 +353,13 @@ cat <<EOF
  All services use uid:gid ${BOXARR_PUID}:${BOXARR_PGID}.
  Match Plex PUID/PGID to the same values if playback fails.
 
+ Diagnose problems:
+   sudo bash ${BOXARR_INSTALL_DIR}/diagnose.sh
+
  Manage:
    cd ${BOXARR_INSTALL_DIR}
-   docker compose ps
-   docker compose logs -f boxarr-rclone
-   docker compose restart
+   sudo docker compose ps
+   sudo docker compose logs -f boxarr-rclone
+   sudo docker compose restart
 ============================================================
 EOF

@@ -1,0 +1,98 @@
+# CasaOS / ZimaOS Boxarr stack — copy to /DATA/AppData/boxarr-stack/docker-compose.yml
+# Replace YOUR_TORBOX_KEY, YOUR_TMDB_KEY, YOUR_PROWLARR_KEY, YOUR_SEERR_KEY before starting.
+
+services:
+  boxarr:
+    image: ghcr.io/radaiko/boxarr:latest
+    container_name: boxarr
+    restart: unless-stopped
+    user: "1000:1000"
+    environment:
+      - BOXARR_DATABASE_PATH=/config/boxarr.db
+      - BOXARR_LISTEN_ADDR=:8080
+      - TZ=Etc/UTC
+      - BOXARR_TORBOX_API_TOKEN=YOUR_TORBOX_KEY
+      - BOXARR_PROWLARR_URL=http://boxarr-prowlarr:9696
+      - BOXARR_PROWLARR_API_KEY=YOUR_PROWLARR_KEY
+      - BOXARR_TMDB_API_KEY=YOUR_TMDB_KEY
+      - BOXARR_SEERR_API_KEYS=YOUR_SEERR_KEY
+      - BOXARR_WEBDAV_MOUNT_ROOT=/mnt/torbox
+      - BOXARR_MOVIE_LIBRARY_ROOT=/mnt/library/movies
+      - BOXARR_TV_LIBRARY_ROOT=/mnt/library/tv
+      - BOXARR_ANIME_LIBRARY_ROOT=/mnt/library/anime
+    ports:
+      - "8181:8080"
+    volumes:
+      - /DATA/AppData/boxarr:/config
+      - /DATA/Media/library:/mnt/library
+      - type: bind
+        source: /DATA/Media/torbox
+        target: /mnt/torbox
+        bind:
+          propagation: rslave
+    depends_on:
+      - boxarr-rclone
+    networks: [boxarr-media]
+
+  boxarr-rclone:
+    image: rclone/rclone:latest
+    container_name: boxarr-rclone
+    restart: unless-stopped
+    cap_add: [SYS_ADMIN]
+    devices: ["/dev/fuse:/dev/fuse:rwm"]
+    security_opt: ["apparmor:unconfined"]
+    environment:
+      - TZ=Etc/UTC
+    volumes:
+      - /DATA/AppData/boxarr-rclone/rclone.conf:/config/rclone/rclone.conf:ro
+      - /DATA/AppData/boxarr-rclone/cache:/cache
+      - /etc/fuse.conf:/etc/fuse.conf:ro
+      - type: bind
+        source: /DATA/Media/torbox
+        target: /data
+        bind:
+          propagation: rshared
+    command: >
+      mount torbox: /data
+      --allow-other --allow-non-empty --dir-cache-time 1h
+      --vfs-cache-mode full --vfs-cache-max-size 50G --vfs-cache-max-age 168h
+      --vfs-read-ahead 256M --vfs-read-chunk-size 32M --vfs-read-chunk-size-limit 1G
+      --buffer-size 64M --vfs-fast-fingerprint --no-checksum --no-modtime
+      --transfers 4 --checkers 2 --tpslimit 5 --tpslimit-burst 5 --low-level-retries 3
+      --attr-timeout 24h --umask 002 --uid 1000 --gid 1000
+      --cache-dir /cache --log-level INFO
+    networks: [boxarr-media]
+
+  boxarr-prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: boxarr-prowlarr
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+    volumes:
+      - /DATA/AppData/prowlarr:/config
+    ports:
+      - "9696:9696"
+    networks: [boxarr-media]
+
+  boxarr-seerr:
+    image: ghcr.io/seerr-team/seerr:latest
+    container_name: boxarr-seerr
+    init: true
+    restart: unless-stopped
+    environment:
+      - LOG_LEVEL=info
+      - TZ=Etc/UTC
+      - PORT=5055
+    volumes:
+      - /DATA/AppData/seerr:/app/config
+    ports:
+      - "5055:5055"
+    networks: [boxarr-media]
+
+networks:
+  boxarr-media:
+    name: boxarr-media
+    driver: bridge

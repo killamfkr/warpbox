@@ -26,21 +26,27 @@ curl -fsSL https://raw.githubusercontent.com/mainlink0435/warpbox/main/scripts/i
 
 When it finishes, add Plex libraries pointing at `/DATA/Media/warpbox/movies` and `/DATA/Media/warpbox/tv`. If Plex runs in Docker, bind-mount `/DATA/Media/warpbox` into the Plex container.
 
-### Seerr + Boxarr (TorBox requests for friends)
+### Boxarr + rclone + Prowlarr (TorBox requests)
 
-Standalone stack: **Seerr** + **Boxarr** + **Prowlarr** + **rclone** (direct TorBox WebDAV). No Warpbox required.
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/mainlink0435/warpbox/main/scripts/install-seerr-boxarr-casaos.sh | sudo bash
-```
-
-Non-interactive:
+Standalone stack with correct CasaOS permissions. **Copy this entire line** into the terminal:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mainlink0435/warpbox/main/scripts/install-seerr-boxarr-casaos.sh | sudo TORBOX_API_KEY='your-key' TMDB_API_KEY='your-tmdb-token' bash
+curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/cursor/casaos-install-script-1b99/scripts/install-boxarr-casaos.sh -o /tmp/install-boxarr.sh && sed -i 's/\r$//' /tmp/install-boxarr.sh && chmod +x /tmp/install-boxarr.sh && sudo /tmp/install-boxarr.sh
 ```
 
-After install: add indexers in Prowlarr, connect Seerr to `http://boxarr:8080/sonarr` and `/radarr`, bind-mount `/DATA/Media/library` and `/DATA/Media/torbox` into Plex.
+With API keys (no prompts):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/cursor/casaos-install-script-1b99/scripts/install-boxarr-casaos.sh -o /tmp/install-boxarr.sh && sed -i 's/\r$//' /tmp/install-boxarr.sh && chmod +x /tmp/install-boxarr.sh && sudo TORBOX_API_KEY='your-key' TMDB_API_KEY='your-tmdb-token' /tmp/install-boxarr.sh
+```
+
+Skip Seerr: add `INSTALL_SEERR=0` before `sudo`.
+
+Installs to `/DATA/AppData/boxarr-stack`. Auto-matches Plex LinuxServer UID if Plex is running.
+
+After install, add to **Plex (LinuxServer) → Settings → Volumes**:
+- `/DATA/Media/library` → `/mnt/library`
+- `/DATA/Media/torbox` → `/mnt/torbox`
 
 ### SeerrBridge (Seerr → DMM automation)
 
