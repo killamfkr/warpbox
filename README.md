@@ -28,7 +28,7 @@ When it finishes, add Plex libraries pointing at `/DATA/Media/warpbox/movies` an
 
 ### Seerr + Boxarr (TorBox requests for friends)
 
-Full request stack: **Seerr** (UI) → **Boxarr** (TorBox grabs) → **Prowlarr** (indexers). One-liner:
+Standalone stack: **Seerr** + **Boxarr** + **Prowlarr** + **rclone** (direct TorBox WebDAV). No Warpbox required.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/mainlink0435/warpbox/main/scripts/install-seerr-boxarr-casaos.sh | sudo bash
@@ -38,12 +38,6 @@ Non-interactive:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/mainlink0435/warpbox/main/scripts/install-seerr-boxarr-casaos.sh | sudo TORBOX_API_KEY='your-key' TMDB_API_KEY='your-tmdb-token' bash
-```
-
-Reuse an existing Warpbox mount instead of a second rclone:
-
-```bash
-curl -fsSL ... | sudo USE_WARPBOX=1 bash
 ```
 
 After install: add indexers in Prowlarr, connect Seerr to `http://boxarr:8080/sonarr` and `/radarr`, bind-mount `/DATA/Media/library` and `/DATA/Media/torbox` into Plex.

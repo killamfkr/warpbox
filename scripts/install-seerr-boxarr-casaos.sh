@@ -1,17 +1,13 @@
 #!/usr/bin/env bash
-# Seerr + Boxarr + Prowlarr one-shot installer for CasaOS / ZimaOS (TorBox requests).
+# Seerr + Boxarr + Prowlarr one-shot installer for CasaOS / ZimaOS.
 #
-# Boxarr emulates Sonarr/Radarr and sends grabs to TorBox. Seerr is the request UI.
-# Prowlarr is required for indexer search (add indexers in its UI after install).
+# Standalone TorBox request stack — own rclone WebDAV mount, no Warpbox required.
 #
 # One-liner (interactive):
 #   curl -fsSL https://raw.githubusercontent.com/mainlink0435/warpbox/main/scripts/install-seerr-boxarr-casaos.sh | sudo bash
 #
 # One-liner (non-interactive):
-#   curl -fsSL ... | sudo TORBOX_API_KEY='...' TMDB_API_KEY='...' bash
-#
-# Use existing Warpbox mount instead of direct TorBox WebDAV rclone:
-#   USE_WARPBOX=1 curl -fsSL ... | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/mainlink0435/warpbox/main/scripts/install-seerr-boxarr-casaos.sh | sudo TORBOX_API_KEY='...' TMDB_API_KEY='...' bash
 #
 # Optional env vars:
 #   BOXARR_INSTALL_DIR       default: /opt/boxarr-stack
@@ -20,7 +16,6 @@
 #   BOXARR_PUID / BOXARR_PGID default: first non-root user or 1000
 #   BOXARR_SEERR_API_KEY     auto-generated if unset
 #   PROWLARR_API_KEY         extracted from Prowlarr after first boot if unset
-#   USE_WARPBOX              skip rclone; bind existing Warpbox mount path
 
 set -euo pipefail
 
@@ -43,10 +38,7 @@ SEERR_APPDATA="${BOXARR_DATA_ROOT}/seerr"
 
 TORBOX_MOUNT="${BOXARR_MEDIA_ROOT}/torbox"
 LIBRARY_ROOT="${BOXARR_MEDIA_ROOT}/library"
-WARPBOX_MOUNT="${WARPBOX_MOUNT:-${BOXARR_MEDIA_ROOT}/warpbox}"
-
 TZ="${TZ:-Etc/UTC}"
-USE_WARPBOX="${USE_WARPBOX:-0}"
 
 if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
   echo "error: run as root (prefix with sudo)" >&2
@@ -63,8 +55,8 @@ if ! docker compose version >/dev/null 2>&1; then
   exit 1
 fi
 
-if [[ "${USE_WARPBOX}" != "1" ]] && [[ ! -e /dev/fuse ]]; then
-  echo "error: /dev/fuse missing — required unless USE_WARPBOX=1" >&2
+if [[ ! -e /dev/fuse ]]; then
+  echo "error: /dev/fuse missing — FUSE is required for the TorBox rclone mount" >&2
   exit 1
 fi
 
@@ -100,11 +92,6 @@ echo "    install:  ${BOXARR_INSTALL_DIR}"
 echo "    library:  ${LIBRARY_ROOT}"
 echo "    mount:    ${TORBOX_MOUNT}"
 echo "    puid:     ${BOXARR_PUID}  pgid: ${BOXARR_PGID}"
-echo "    warpbox:  ${USE_WARPBOX}"
-
-if [[ -d /opt/warpbox && "${USE_WARPBOX}" != "1" ]]; then
-  echo "warning: /opt/warpbox exists — consider USE_WARPBOX=1 to reuse that mount" >&2
-fi
 
 if [[ -z "${TORBOX_API_KEY:-}" ]]; then
   echo
@@ -153,23 +140,11 @@ else
   echo "user_allow_other" > "${FUSE_CONF}"
 fi
 
-MOUNT_SOURCE="${TORBOX_MOUNT}"
-if [[ "${USE_WARPBOX}" == "1" ]]; then
-  if [[ ! -d "${WARPBOX_MOUNT}" ]]; then
-    echo "error: USE_WARPBOX=1 but ${WARPBOX_MOUNT} does not exist — run the Warpbox installer first" >&2
-    exit 1
-  fi
-  MOUNT_SOURCE="${WARPBOX_MOUNT}"
-  echo "==> Reusing Warpbox mount at ${WARPBOX_MOUNT}"
-else
-  echo "==> Configuring shared mount propagation for ${TORBOX_MOUNT}"
-  mount --bind "${TORBOX_MOUNT}" "${TORBOX_MOUNT}" 2>/dev/null || true
-  mount --make-rshared "${TORBOX_MOUNT}" 2>/dev/null || true
-fi
+echo "==> Configuring shared mount propagation for ${TORBOX_MOUNT}"
+mount --bind "${TORBOX_MOUNT}" "${TORBOX_MOUNT}" 2>/dev/null || true
+mount --make-rshared "${TORBOX_MOUNT}" 2>/dev/null || true
 
-RCLONE_SERVICE=""
-if [[ "${USE_WARPBOX}" != "1" ]]; then
-  cat > "${RCLONE_APPDATA}/rclone.conf" <<EOF
+cat > "${RCLONE_APPDATA}/rclone.conf" <<EOF
 [torbox]
 type = webdav
 url = https://webdav.torbox.app/
@@ -177,45 +152,8 @@ vendor = other
 user = torbox
 pass = ${TORBOX_API_KEY}
 EOF
-  chmod 600 "${RCLONE_APPDATA}/rclone.conf"
-  chown "${BOXARR_PUID}:${BOXARR_PGID}" "${RCLONE_APPDATA}/rclone.conf" 2>/dev/null || true
-
-  RCLONE_SERVICE="
-  boxarr-rclone:
-    image: ${RCLONE_IMAGE}
-    container_name: boxarr-rclone
-    restart: unless-stopped
-    cap_add: [SYS_ADMIN]
-    devices: [\"/dev/fuse:/dev/fuse:rwm\"]
-    security_opt: [\"apparmor:unconfined\"]
-    environment:
-      - TZ=${TZ}
-    volumes:
-      - ${RCLONE_APPDATA}/rclone.conf:/config/rclone/rclone.conf:ro
-      - ${RCLONE_APPDATA}/cache:/cache
-      - /etc/fuse.conf:/etc/fuse.conf:ro
-      - type: bind
-        source: ${TORBOX_MOUNT}
-        target: /data
-        bind:
-          propagation: rshared
-    command: >
-      mount torbox: /data
-      --allow-other --allow-non-empty --dir-cache-time 1h
-      --vfs-cache-mode full --vfs-cache-max-size 50G --vfs-cache-max-age 168h
-      --vfs-read-ahead 256M --vfs-read-chunk-size 32M --vfs-read-chunk-size-limit 1G
-      --buffer-size 64M --vfs-fast-fingerprint --no-checksum --no-modtime
-      --transfers 4 --checkers 2 --tpslimit 5 --tpslimit-burst 5 --low-level-retries 3
-      --attr-timeout 24h --umask 002 --uid ${BOXARR_PUID} --gid ${BOXARR_PGID}
-      --cache-dir /cache --log-level INFO
-    networks: [boxarr-media]"
-fi
-
-BOXARR_DEPENDS=""
-if [[ "${USE_WARPBOX}" != "1" ]]; then
-  BOXARR_DEPENDS="    depends_on:
-      - boxarr-rclone"
-fi
+chmod 600 "${RCLONE_APPDATA}/rclone.conf"
+chown "${BOXARR_PUID}:${BOXARR_PGID}" "${RCLONE_APPDATA}/rclone.conf" 2>/dev/null || true
 
 cat > "${BOXARR_INSTALL_DIR}/docker-compose.yml" <<EOF
 services:
@@ -243,18 +181,47 @@ services:
       - ${BOXARR_APPDATA}:/config
       - ${LIBRARY_ROOT}:/mnt/library
       - type: bind
-        source: ${MOUNT_SOURCE}
+        source: ${TORBOX_MOUNT}
         target: /mnt/torbox
         bind:
           propagation: rslave
-${BOXARR_DEPENDS}
+    depends_on:
+      - boxarr-rclone
     networks: [boxarr-media]
     healthcheck:
       test: ["CMD", "/boxarr", "healthcheck"]
       interval: 60s
       timeout: 5s
       retries: 3
-${RCLONE_SERVICE}
+
+  boxarr-rclone:
+    image: ${RCLONE_IMAGE}
+    container_name: boxarr-rclone
+    restart: unless-stopped
+    cap_add: [SYS_ADMIN]
+    devices: ["/dev/fuse:/dev/fuse:rwm"]
+    security_opt: ["apparmor:unconfined"]
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - ${RCLONE_APPDATA}/rclone.conf:/config/rclone/rclone.conf:ro
+      - ${RCLONE_APPDATA}/cache:/cache
+      - /etc/fuse.conf:/etc/fuse.conf:ro
+      - type: bind
+        source: ${TORBOX_MOUNT}
+        target: /data
+        bind:
+          propagation: rshared
+    command: >
+      mount torbox: /data
+      --allow-other --allow-non-empty --dir-cache-time 1h
+      --vfs-cache-mode full --vfs-cache-max-size 50G --vfs-cache-max-age 168h
+      --vfs-read-ahead 256M --vfs-read-chunk-size 32M --vfs-read-chunk-size-limit 1G
+      --buffer-size 64M --vfs-fast-fingerprint --no-checksum --no-modtime
+      --transfers 4 --checkers 2 --tpslimit 5 --tpslimit-burst 5 --low-level-retries 3
+      --attr-timeout 24h --umask 002 --uid ${BOXARR_PUID} --gid ${BOXARR_PGID}
+      --cache-dir /cache --log-level INFO
+    networks: [boxarr-media]
 
   prowlarr:
     image: ${PROWLARR_IMAGE}
@@ -314,7 +281,6 @@ if [[ -z "${PROWLARR_API_KEY:-}" ]]; then
   PROWLARR_API_KEY=""
 fi
 
-# Inject resolved Prowlarr API key into compose
 sed -i "s|__PROWLARR_API_KEY__|${PROWLARR_API_KEY}|" "${BOXARR_INSTALL_DIR}/docker-compose.yml"
 
 echo "==> Starting full stack"
@@ -338,6 +304,9 @@ cat <<EOF
  Boxarr (manager):     http://${HOST_IP}:${BOXARR_PORT}/
  Prowlarr (indexers):  http://${HOST_IP}:${PROWLARR_PORT}/
 
+ TorBox mount:         ${TORBOX_MOUNT}
+ Plex symlinks:        ${LIBRARY_ROOT}
+
  Seerr API key (for Boxarr ↔ Seerr):
    ${BOXARR_SEERR_API_KEY}
 
@@ -356,29 +325,22 @@ cat <<EOF
  2. Boxarr searches via Prowlarr — no indexers = no grabs
 
 ── Plex bind mounts (both paths required) ───────────────────
- Plex must see the SAME absolute paths as Boxarr:
-
-   ${LIBRARY_ROOT}  →  /mnt/library   (symlinks Boxarr writes)
-   ${MOUNT_SOURCE}  →  /mnt/torbox    (symlink targets)
+   ${LIBRARY_ROOT}  →  /mnt/library
+   ${TORBOX_MOUNT}  →  /mnt/torbox
 
  Plex libraries:
-   Movies: ${LIBRARY_ROOT}/movies  → /mnt/library/movies
-   TV:     ${LIBRARY_ROOT}/tv      → /mnt/library/tv
-   Anime:  ${LIBRARY_ROOT}/anime   → /mnt/library/anime
+   Movies → /mnt/library/movies
+   TV     → /mnt/library/tv
+   Anime  → /mnt/library/anime
 
- Or use Boxarr Settings → Sign in with Plex and map libraries.
-
-── Notes ───────────────────────────────────────────────────
- • Boxarr replaces Sonarr/Radarr for TorBox — grabs go to TorBox,
-   symlinks land in ${LIBRARY_ROOT}, Plex plays from the mount.
- • This stack overlaps with Warpbox: pick one mount strategy.
-   USE_WARPBOX=1 reuses an existing Warpbox rclone mount.
- • After rclone restarts, scan Plex libraries manually.
+── Permissions ───────────────────────────────────────────────
+ All services use uid:gid ${BOXARR_PUID}:${BOXARR_PGID}.
+ Match Plex PUID/PGID to the same values if playback fails.
 
  Manage:
    cd ${BOXARR_INSTALL_DIR}
    docker compose ps
-   docker compose logs -f boxarr
+   docker compose logs -f boxarr-rclone
    docker compose restart
 ============================================================
 EOF
