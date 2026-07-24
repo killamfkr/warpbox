@@ -26,6 +26,22 @@ curl -fsSL https://raw.githubusercontent.com/mainlink0435/warpbox/main/scripts/i
 
 When it finishes, add Plex libraries pointing at `/DATA/Media/warpbox/movies` and `/DATA/Media/warpbox/tv`. If Plex runs in Docker, bind-mount `/DATA/Media/warpbox` into the Plex container.
 
+### SeerrBridge (Seerr → DMM automation)
+
+SeerrBridge automates Seerr/Overseerr requests through Debrid Media Manager. It officially supports **Real-Debrid only** (not TorBox). One-liner:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mainlink0435/warpbox/main/scripts/install-seerrbridge-casaos.sh | sudo bash
+```
+
+If Seerr runs in Docker on the same network, pass the network name so webhooks resolve:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mainlink0435/warpbox/main/scripts/install-seerrbridge-casaos.sh | sudo SEERR_DOCKER_NETWORK='your-seerr-network' bash
+```
+
+Dashboard: `http://<nas-ip>:3777` — configure Real-Debrid tokens and your Seerr API key there. Set the Seerr webhook to `http://<nas-ip>:8777/jellyseer-webhook/`.
+
 ### Docker Compose
 
 ```yaml
