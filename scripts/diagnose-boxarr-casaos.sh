@@ -1,13 +1,33 @@
 #!/usr/bin/env bash
 # Quick diagnostics for Boxarr stack on CasaOS / ZimaOS.
-# Run: sudo bash diagnose-boxarr-casaos.sh
+# Run as root:  curl -fsSL .../diagnose-boxarr-casaos.sh | sudo bash
 
 set -u
+
+if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
+  echo "ERROR: run as root — use: curl -fsSL .../diagnose-boxarr-casaos.sh | sudo bash" >&2
+  exit 1
+fi
+
+if [[ -n "${DOCKER_CONFIG:-}" ]] && [[ ! -r "${DOCKER_CONFIG}/config.json" ]] 2>/dev/null; then
+  unset DOCKER_CONFIG
+fi
+export DOCKER_CONFIG="${DOCKER_CONFIG:-/root/.docker}"
 
 echo "=== Boxarr diagnostics ==="
 echo "user: $(id)"
 echo "docker: $(command -v docker 2>/dev/null || echo MISSING)"
-echo "compose: $(docker compose version 2>/dev/null || echo MISSING)"
+echo "DOCKER_CONFIG: ${DOCKER_CONFIG}"
+if docker compose version >/dev/null 2>&1; then
+  echo "compose: $(docker compose version 2>/dev/null | head -1)"
+elif command -v docker-compose >/dev/null 2>&1; then
+  echo "compose: docker-compose $(docker-compose version 2>/dev/null | head -1)"
+else
+  echo "compose: MISSING"
+  for p in /usr/lib/docker/cli-plugins/docker-compose /usr/libexec/docker/cli-plugins/docker-compose; do
+    [[ -x "$p" ]] && echo "  found plugin: $p"
+  done
+fi
 echo "fuse: $(test -e /dev/fuse && echo OK || echo MISSING)"
 echo "user_allow_other: $(grep -q '^user_allow_other' /etc/fuse.conf 2>/dev/null && echo OK || echo MISSING)"
 echo

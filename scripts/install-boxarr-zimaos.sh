@@ -8,7 +8,7 @@
 # curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/cursor/casaos-install-script-1b99/scripts/install-boxarr-zimaos.sh -o /tmp/i.sh && sed -i 's/\r$//' /tmp/i.sh && chmod +x /tmp/i.sh && sudo bash /tmp/i.sh
 #
 # With keys (no prompts — recommended):
-# curl -fsSL ... -o /tmp/i.sh && sed -i 's/\r$//' /tmp/i.sh && chmod +x /tmp/i.sh && sudo TORBOX_API_KEY='key' TMDB_API_KEY='key' bash /tmp/i.sh
+# curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/cursor/casaos-install-script-1b99/scripts/install-boxarr-zimaos.sh -o /tmp/i.sh && sed -i 's/\r$//' /tmp/i.sh && chmod +x /tmp/i.sh && sudo TORBOX_API_KEY='key' TMDB_API_KEY='key' bash /tmp/i.sh
 
 set -euo pipefail
 
@@ -28,6 +28,13 @@ if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
   command -v sudo >/dev/null 2>&1 || die "run as root: sudo bash /tmp/i.sh"
   exec sudo -E bash "${SCRIPT_PATH}" "$@"
 fi
+
+# ZimaOS often sets DOCKER_CONFIG=/DATA/.docker — breaks compose for non-root shells
+if [[ -n "${DOCKER_CONFIG:-}" ]] && [[ ! -r "${DOCKER_CONFIG}/config.json" ]] 2>/dev/null; then
+  unset DOCKER_CONFIG
+fi
+export DOCKER_CONFIG="${DOCKER_CONFIG:-/root/.docker}"
+mkdir -p "${DOCKER_CONFIG}/cli-plugins" 2>/dev/null || true
 
 INSTALL_DIR="/DATA/AppData/boxarr-stack"
 BOXARR_APPDATA="/DATA/AppData/boxarr"
@@ -56,13 +63,32 @@ fi
 command -v docker >/dev/null 2>&1 || die "docker not found"
 [[ -e /dev/fuse ]] || die "/dev/fuse missing — enable FUSE / Developer Mode"
 
-if docker compose version >/dev/null 2>&1; then
-  DC() { docker compose -f "${INSTALL_DIR}/docker-compose.yml" "$@"; }
-elif command -v docker-compose >/dev/null 2>&1; then
-  DC() { docker-compose -f "${INSTALL_DIR}/docker-compose.yml" "$@"; }
-else
-  die "docker compose not found"
-fi
+setup_compose() {
+  if docker compose version >/dev/null 2>&1; then
+    DC() { docker compose -f "${INSTALL_DIR}/docker-compose.yml" "$@"; }
+    return 0
+  fi
+  if command -v docker-compose >/dev/null 2>&1; then
+    DC() { docker-compose -f "${INSTALL_DIR}/docker-compose.yml" "$@"; }
+    return 0
+  fi
+  local plugin
+  for plugin in \
+    /usr/lib/docker/cli-plugins/docker-compose \
+    /usr/libexec/docker/cli-plugins/docker-compose \
+    /usr/local/lib/docker/cli-plugins/docker-compose; do
+    if [[ -x "${plugin}" ]]; then
+      ln -sf "${plugin}" "${DOCKER_CONFIG}/cli-plugins/docker-compose" 2>/dev/null || true
+      if docker compose version >/dev/null 2>&1; then
+        DC() { docker compose -f "${INSTALL_DIR}/docker-compose.yml" "$@"; }
+        return 0
+      fi
+    fi
+  done
+  return 1
+}
+
+setup_compose || die "docker compose not found — on ZimaOS run as root: docker compose version"
 
 docker info >/dev/null 2>&1 || die "docker daemon not running — try: sudo systemctl start docker"
 
@@ -90,9 +116,19 @@ PUID="${BOXARR_PUID:-${PUID:-1000}}"
 PGID="${BOXARR_PGID:-${PGID:-1000}}"
 [[ "${PUID}" =~ ^[0-9]+$ && "${PGID}" =~ ^[0-9]+$ ]] || die "invalid uid:gid ${PUID}:${PGID} — set BOXARR_PUID=1000 BOXARR_PGID=1000"
 
-HOST_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+HOST_IP="$( (hostname -I 2>/dev/null || true) | awk '{print $1}')"
+if [[ -z "${HOST_IP}" ]]; then
+  HOST_IP="$( (ip -4 route get 1.1.1.1 2>/dev/null || true) | awk '{print $7; exit}' )"
+fi
 HOST_IP="${HOST_IP:-localhost}"
-SEERR_KEY="${BOXARR_SEERR_API_KEY:-$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')}"
+
+if [[ -n "${BOXARR_SEERR_API_KEY:-}" ]]; then
+  SEERR_KEY="${BOXARR_SEERR_API_KEY}"
+else
+  SEERR_KEY="$(openssl rand -hex 16 2>/dev/null || true)"
+  [[ -n "${SEERR_KEY}" ]] || SEERR_KEY="$( (head -c 16 /dev/urandom 2>/dev/null || true) | od -An -tx1 2>/dev/null | tr -d ' \n' || true)"
+  SEERR_KEY="${SEERR_KEY:-seerr$(date +%s)}"
+fi
 
 echo "==> ZimaOS Boxarr installer"
 echo "    install: ${INSTALL_DIR}"
