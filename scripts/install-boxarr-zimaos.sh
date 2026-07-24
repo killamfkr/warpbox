@@ -73,7 +73,7 @@ detect_puid() {
     uid="$(docker exec "${name}" id -u 2>/dev/null || true)"
     gid="$(docker exec "${name}" id -g 2>/dev/null || true)"
     if [[ -n "${uid}" && "${uid}" != "0" ]]; then
-      echo "==> Found Plex container '${name}' — using uid:gid ${uid}:${gid}"
+      echo "==> Found Plex container '${name}' — using uid:gid ${uid}:${gid}" >&2
       echo "${uid} ${gid}"
       return
     fi
@@ -88,6 +88,7 @@ detect_puid() {
 read -r PUID PGID < <(detect_puid)
 PUID="${BOXARR_PUID:-${PUID:-1000}}"
 PGID="${BOXARR_PGID:-${PGID:-1000}}"
+[[ "${PUID}" =~ ^[0-9]+$ && "${PGID}" =~ ^[0-9]+$ ]] || die "invalid uid:gid ${PUID}:${PGID} — set BOXARR_PUID=1000 BOXARR_PGID=1000"
 
 HOST_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 HOST_IP="${HOST_IP:-localhost}"
@@ -238,6 +239,11 @@ chmod 644 "${INSTALL_DIR}/docker-compose.yml"
 
 echo "==> Pulling images"
 DC pull
+
+echo "==> Removing any previous failed boxarr containers"
+for c in boxarr boxarr-rclone boxarr-prowlarr boxarr-seerr; do
+  docker rm -f "${c}" 2>/dev/null || true
+done
 
 echo "==> Starting Prowlarr"
 DC up -d boxarr-prowlarr
