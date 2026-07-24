@@ -2,72 +2,96 @@
 # Boxarr + rclone + Prowlarr for ZimaOS (SSH required — web terminal often breaks).
 #
 # 1. ZimaOS → Settings → enable Developer Mode + SSH
-# 2. SSH from your PC:  ssh root@<zima-ip>   (or: ssh user@<zima-ip> then use sudo below)
+# 2. SSH from your PC:  ssh root@<zima-ip>
 # 3. Run this ONE line:
 #
 # curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/cursor/casaos-install-script-1b99/scripts/install-boxarr-zimaos.sh -o /tmp/i.sh && sed -i 's/\r$//' /tmp/i.sh && chmod +x /tmp/i.sh && sudo bash /tmp/i.sh
 #
-# With keys:
+# With keys (no prompts — recommended):
 # curl -fsSL ... -o /tmp/i.sh && sed -i 's/\r$//' /tmp/i.sh && chmod +x /tmp/i.sh && sudo TORBOX_API_KEY='key' TMDB_API_KEY='key' bash /tmp/i.sh
 
 set -euo pipefail
+
+SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+
+die() { echo "ERROR: $*" >&2; exit 1; }
+
+on_err() {
+  echo "ERROR: install failed at line ${1} (exit ${2})" >&2
+  echo "Run diagnostics:" >&2
+  echo "  curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/cursor/casaos-install-script-1b99/scripts/diagnose-boxarr-casaos.sh | sudo bash" >&2
+  exit "${2}"
+}
+trap 'on_err ${LINENO} $?' ERR
+
+if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
+  command -v sudo >/dev/null 2>&1 || die "run as root: sudo bash /tmp/i.sh"
+  exec sudo -E bash "${SCRIPT_PATH}" "$@"
+fi
 
 INSTALL_DIR="/DATA/AppData/boxarr-stack"
 BOXARR_APPDATA="/DATA/AppData/boxarr"
 RCLONE_APPDATA="/DATA/AppData/boxarr-rclone"
 PROWLARR_APPDATA="/DATA/AppData/prowlarr"
 SEERR_APPDATA="/DATA/AppData/seerr"
+TORBOX_MOUNT="/DATA/Media/torbox"
+LIBRARY_ROOT="/DATA/Media/library"
 INSTALL_SEERR="${INSTALL_SEERR:-1}"
+TZ="${TZ:-Etc/UTC}"
+BOXARR_PORT="${BOXARR_PORT:-8181}"
+PROWLARR_PORT="${PROWLARR_PORT:-9696}"
+SEERR_PORT="${SEERR_PORT:-5055}"
 
-# ZimaOS usually uses /DATA; some RAID setups use /media/Storage
-if [[ -d /DATA/Media ]]; then
-  TORBOX_MOUNT="/DATA/Media/torbox"
-  LIBRARY_ROOT="/DATA/Media/library"
-elif [[ -d /media/Storage ]]; then
-  TORBOX_MOUNT="/media/Storage/Media/torbox"
-  LIBRARY_ROOT="/media/Storage/Media/library"
+# ZimaOS: prefer /DATA; some RAID setups use /media/Storage instead
+if [[ -d /media/Storage ]] && [[ ! -d /DATA ]]; then
   INSTALL_DIR="/media/Storage/AppData/boxarr-stack"
   BOXARR_APPDATA="/media/Storage/AppData/boxarr"
   RCLONE_APPDATA="/media/Storage/AppData/boxarr-rclone"
   PROWLARR_APPDATA="/media/Storage/AppData/prowlarr"
   SEERR_APPDATA="/media/Storage/AppData/seerr"
-else
-  TORBOX_MOUNT="/DATA/Media/torbox"
-  LIBRARY_ROOT="/DATA/Media/library"
-fi
-
-TZ="${TZ:-Etc/UTC}"
-PUID="${BOXARR_PUID:-1000}"
-PGID="${BOXARR_PGID:-1000}"
-
-die() { echo "ERROR: $*" >&2; exit 1; }
-
-if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
-  command -v sudo >/dev/null 2>&1 || die "run as root: sudo bash /tmp/i.sh"
-  exec sudo -E bash "$0" "$@"
+  TORBOX_MOUNT="/media/Storage/Media/torbox"
+  LIBRARY_ROOT="/media/Storage/Media/library"
 fi
 
 command -v docker >/dev/null 2>&1 || die "docker not found"
-[[ -e /dev/fuse ]] || die "/dev/fuse missing"
+[[ -e /dev/fuse ]] || die "/dev/fuse missing — enable FUSE / Developer Mode"
 
 if docker compose version >/dev/null 2>&1; then
   DC() { docker compose -f "${INSTALL_DIR}/docker-compose.yml" "$@"; }
-else
+elif command -v docker-compose >/dev/null 2>&1; then
   DC() { docker-compose -f "${INSTALL_DIR}/docker-compose.yml" "$@"; }
+else
+  die "docker compose not found"
 fi
 
-docker info >/dev/null 2>&1 || die "docker daemon not running"
+docker info >/dev/null 2>&1 || die "docker daemon not running — try: sudo systemctl start docker"
 
-# Match LinuxServer Plex UID if present
-for name in $(docker ps --format '{{.Names}}' | grep -i plex || true); do
-  PUID="$(docker exec "$name" id -u 2>/dev/null || echo "$PUID")"
-  PGID="$(docker exec "$name" id -g 2>/dev/null || echo "$PGID")"
-  echo "==> Found Plex container '$name' — using uid:gid ${PUID}:${PGID}"
-  break
-done
+detect_puid() {
+  local uid="" gid="" name
+  while read -r name; do
+    [[ -z "${name}" ]] && continue
+    uid="$(docker exec "${name}" id -u 2>/dev/null || true)"
+    gid="$(docker exec "${name}" id -g 2>/dev/null || true)"
+    if [[ -n "${uid}" && "${uid}" != "0" ]]; then
+      echo "==> Found Plex container '${name}' — using uid:gid ${uid}:${gid}"
+      echo "${uid} ${gid}"
+      return
+    fi
+  done < <(docker ps --format '{{.Names}}' | grep -i plex || true)
+
+  local user="${SUDO_USER:-$(logname 2>/dev/null || echo "")}"
+  uid="$(id -u "${user}" 2>/dev/null || echo 1000)"
+  gid="$(id -g "${user}" 2>/dev/null || echo 1000)"
+  echo "${uid} ${gid}"
+}
+
+read -r PUID PGID < <(detect_puid)
+PUID="${BOXARR_PUID:-${PUID:-1000}}"
+PGID="${BOXARR_PGID:-${PGID:-1000}}"
 
 HOST_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
-SEERR_KEY="${BOXARR_SEERR_API_KEY:-$(openssl rand -hex 16 2>/dev/null || echo changeme1234567890)}"
+HOST_IP="${HOST_IP:-localhost}"
+SEERR_KEY="${BOXARR_SEERR_API_KEY:-$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')}"
 
 echo "==> ZimaOS Boxarr installer"
 echo "    install: ${INSTALL_DIR}"
@@ -75,10 +99,22 @@ echo "    mount:   ${TORBOX_MOUNT}"
 echo "    library: ${LIBRARY_ROOT}"
 echo "    puid:    ${PUID}:${PGID}"
 
-[[ -n "${TORBOX_API_KEY:-}" ]] || read -r -p "TorBox API key: " TORBOX_API_KEY
+if [[ -z "${TORBOX_API_KEY:-}" ]]; then
+  if [[ -t 0 ]]; then
+    read -r -p "TorBox API key: " TORBOX_API_KEY
+  else
+    die "TORBOX_API_KEY required — pass inline: sudo TORBOX_API_KEY='...' TMDB_API_KEY='...' bash /tmp/i.sh"
+  fi
+fi
 [[ -n "${TORBOX_API_KEY:-}" ]] || die "TorBox API key required"
 
-[[ -n "${TMDB_API_KEY:-}" ]] || read -r -p "TMDB API key: " TMDB_API_KEY
+if [[ -z "${TMDB_API_KEY:-}" ]]; then
+  if [[ -t 0 ]]; then
+    read -r -p "TMDB API key: " TMDB_API_KEY
+  else
+    die "TMDB_API_KEY required — pass inline: sudo TORBOX_API_KEY='...' TMDB_API_KEY='...' bash /tmp/i.sh"
+  fi
+fi
 [[ -n "${TMDB_API_KEY:-}" ]] || die "TMDB API key required"
 
 echo "==> Creating folders"
@@ -88,11 +124,16 @@ mkdir -p "${INSTALL_DIR}" "${BOXARR_APPDATA}" "${RCLONE_APPDATA}/cache" \
 
 chown -R "${PUID}:${PGID}" "${BOXARR_APPDATA}" "${RCLONE_APPDATA}" \
   "${PROWLARR_APPDATA}" "${SEERR_APPDATA}" "${TORBOX_MOUNT}" "${LIBRARY_ROOT}"
-chmod -R u+rwX,g+rwX "${LIBRARY_ROOT}" "${TORBOX_MOUNT}"
+chmod -R u+rwX,g+rwX "${LIBRARY_ROOT}" "${TORBOX_MOUNT}" "${RCLONE_APPDATA}"
 
-grep -q '^user_allow_other' /etc/fuse.conf 2>/dev/null || \
-  { grep -q '^#user_allow_other' /etc/fuse.conf && sed -i 's/^#user_allow_other/user_allow_other/' /etc/fuse.conf; } || \
-  echo "user_allow_other" >> /etc/fuse.conf
+FUSE_CONF="/etc/fuse.conf"
+if [[ -f "${FUSE_CONF}" ]]; then
+  grep -q '^user_allow_other' "${FUSE_CONF}" || \
+    sed -i 's/^#user_allow_other/user_allow_other/' "${FUSE_CONF}" 2>/dev/null || \
+    echo "user_allow_other" >> "${FUSE_CONF}"
+else
+  echo "user_allow_other" > "${FUSE_CONF}"
+fi
 
 cat > "${RCLONE_APPDATA}/rclone.conf" <<EOF
 [torbox]
@@ -106,7 +147,8 @@ chmod 600 "${RCLONE_APPDATA}/rclone.conf"
 chown "${PUID}:${PGID}" "${RCLONE_APPDATA}/rclone.conf"
 
 SEERR_SVC=""
-[[ "${INSTALL_SEERR}" == "1" ]] && SEERR_SVC="
+if [[ "${INSTALL_SEERR}" == "1" ]]; then
+  SEERR_SVC="
   boxarr-seerr:
     image: ghcr.io/seerr-team/seerr:latest
     container_name: boxarr-seerr
@@ -119,10 +161,11 @@ SEERR_SVC=""
     volumes:
       - ${SEERR_APPDATA}:/app/config
     ports:
-      - 5055:5055
+      - ${SEERR_PORT}:5055
     networks: [boxarr-net]"
+fi
 
-# Plain bind mounts — no propagation flags (ZimaOS GUI can't handle them; SSH compose can, but plain is safer)
+# Plain bind mounts — no propagation flags (ZimaOS-safe)
 cat > "${INSTALL_DIR}/docker-compose.yml" <<EOF
 services:
   boxarr-rclone:
@@ -157,14 +200,14 @@ services:
       - TZ=${TZ}
       - BOXARR_TORBOX_API_TOKEN=${TORBOX_API_KEY}
       - BOXARR_PROWLARR_URL=http://boxarr-prowlarr:9696
-      - BOXARR_PROWLARR_API_KEY=__PROWLARR__
+      - BOXARR_PROWLARR_API_KEY=__PROWLARR_KEY__
       - BOXARR_TMDB_API_KEY=${TMDB_API_KEY}
       - BOXARR_SEERR_API_KEYS=${SEERR_KEY}
       - BOXARR_WEBDAV_MOUNT_ROOT=/mnt/torbox
       - BOXARR_MOVIE_LIBRARY_ROOT=/mnt/library/movies
       - BOXARR_TV_LIBRARY_ROOT=/mnt/library/tv
       - BOXARR_ANIME_LIBRARY_ROOT=/mnt/library/anime
-    ports: ["8181:8080"]
+    ports: ["${BOXARR_PORT}:8080"]
     volumes:
       - ${BOXARR_APPDATA}:/config
       - ${LIBRARY_ROOT}:/mnt/library
@@ -181,7 +224,7 @@ services:
       - TZ=${TZ}
     volumes:
       - ${PROWLARR_APPDATA}:/config
-    ports: ["9696:9696"]
+    ports: ["${PROWLARR_PORT}:9696"]
     networks: [boxarr-net]
 ${SEERR_SVC}
 
@@ -190,20 +233,32 @@ networks:
     name: boxarr-net
 EOF
 
-echo "==> Starting Prowlarr"
+chmod 755 "${INSTALL_DIR}"
+chmod 644 "${INSTALL_DIR}/docker-compose.yml"
+
+echo "==> Pulling images"
 DC pull
+
+echo "==> Starting Prowlarr"
 DC up -d boxarr-prowlarr
 
-PKEY=""
-for i in $(seq 1 30); do
-  [[ -f "${PROWLARR_APPDATA}/config.xml" ]] && PKEY="$(grep -oP '(?<=<ApiKey>)[^<]+' "${PROWLARR_APPDATA}/config.xml" | head -1)" && [[ -n "$PKEY" ]] && break
+PROWLARR_KEY=""
+for _ in $(seq 1 60); do
+  if [[ -f "${PROWLARR_APPDATA}/config.xml" ]]; then
+    PROWLARR_KEY="$(sed -n 's/.*<ApiKey>\([^<]*\)<\/ApiKey>.*/\1/p' "${PROWLARR_APPDATA}/config.xml" | head -1)"
+    [[ -n "${PROWLARR_KEY}" ]] && break
+  fi
   sleep 2
 done
-sed -i "s|__PROWLARR__|${PKEY}|" "${INSTALL_DIR}/docker-compose.yml"
+[[ -n "${PROWLARR_KEY}" ]] || die "Prowlarr API key not found — check: docker logs boxarr-prowlarr"
+
+sed -i "s|__PROWLARR_KEY__|${PROWLARR_KEY}|" "${INSTALL_DIR}/docker-compose.yml"
 
 echo "==> Starting all containers"
 DC up -d
 sleep 8
+
+trap - ERR
 
 echo
 echo "========== RESULT =========="
@@ -211,9 +266,9 @@ DC ps
 echo
 docker ps --format 'table {{.Names}}\t{{.Status}}' | grep boxarr || true
 echo
-echo "Boxarr:   http://${HOST_IP}:8181"
-echo "Prowlarr: http://${HOST_IP}:9696"
-[[ "${INSTALL_SEERR}" == "1" ]] && echo "Seerr:    http://${HOST_IP}:5055"
+echo "Boxarr:   http://${HOST_IP}:${BOXARR_PORT}"
+echo "Prowlarr: http://${HOST_IP}:${PROWLARR_PORT}"
+[[ "${INSTALL_SEERR}" == "1" ]] && echo "Seerr:    http://${HOST_IP}:${SEERR_PORT}"
 echo
 echo "Plex volumes to add (Settings → Volumes):"
 echo "  ${LIBRARY_ROOT}  ->  /mnt/library"
@@ -221,5 +276,6 @@ echo "  ${TORBOX_MOUNT}  ->  /mnt/torbox"
 echo "Plex libraries: /mnt/library/movies  /mnt/library/tv"
 echo
 if ! docker ps --format '{{.Names}}' | grep -qx boxarr-rclone; then
-  echo "WARNING: boxarr-rclone failed — run: docker logs boxarr-rclone"
+  echo "WARNING: boxarr-rclone not running"
+  echo "  docker logs boxarr-rclone --tail 40"
 fi
