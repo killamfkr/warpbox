@@ -10,6 +10,22 @@ So I built this. I've been using it for weeks and it works well enough that I wa
 
 ## Quick Start
 
+### CasaOS / ZimaOS (one-liner)
+
+SSH into your NAS and run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mainlink0435/warpbox/main/scripts/install-casaos-zimaos.sh | sudo bash
+```
+
+Non-interactive (pass your TorBox API key):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mainlink0435/warpbox/main/scripts/install-casaos-zimaos.sh | sudo TORBOX_API_KEY='your-key' bash
+```
+
+When it finishes, add Plex libraries pointing at `/DATA/Media/warpbox/movies` and `/DATA/Media/warpbox/tv`. If Plex runs in Docker, bind-mount `/DATA/Media/warpbox` into the Plex container.
+
 ### Docker Compose
 
 ```yaml
