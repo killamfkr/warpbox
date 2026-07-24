@@ -26,6 +26,28 @@ curl -fsSL https://raw.githubusercontent.com/mainlink0435/warpbox/main/scripts/i
 
 When it finishes, add Plex libraries pointing at `/DATA/Media/warpbox/movies` and `/DATA/Media/warpbox/tv`. If Plex runs in Docker, bind-mount `/DATA/Media/warpbox` into the Plex container.
 
+### Seerr + Boxarr (TorBox requests for friends)
+
+Full request stack: **Seerr** (UI) → **Boxarr** (TorBox grabs) → **Prowlarr** (indexers). One-liner:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mainlink0435/warpbox/main/scripts/install-seerr-boxarr-casaos.sh | sudo bash
+```
+
+Non-interactive:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mainlink0435/warpbox/main/scripts/install-seerr-boxarr-casaos.sh | sudo TORBOX_API_KEY='your-key' TMDB_API_KEY='your-tmdb-token' bash
+```
+
+Reuse an existing Warpbox mount instead of a second rclone:
+
+```bash
+curl -fsSL ... | sudo USE_WARPBOX=1 bash
+```
+
+After install: add indexers in Prowlarr, connect Seerr to `http://boxarr:8080/sonarr` and `/radarr`, bind-mount `/DATA/Media/library` and `/DATA/Media/torbox` into Plex.
+
 ### SeerrBridge (Seerr → DMM automation)
 
 SeerrBridge automates Seerr/Overseerr requests through Debrid Media Manager. It officially supports **Real-Debrid only** (not TorBox). One-liner:
