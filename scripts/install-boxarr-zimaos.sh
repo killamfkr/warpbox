@@ -2,13 +2,13 @@
 # Boxarr + rclone + Prowlarr for ZimaOS (SSH required — web terminal often breaks).
 #
 # 1. ZimaOS → Settings → enable Developer Mode + SSH
-# 2. SSH from your PC:  ssh root@<zima-ip>
+# 2. SSH from your PC:  ssh root@<zima-ip>   (or: ssh user@<zima-ip> then use sudo below)
 # 3. Run this ONE line:
 #
-# curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/cursor/casaos-install-script-1b99/scripts/install-boxarr-zimaos.sh -o /tmp/i.sh && sed -i 's/\r$//' /tmp/i.sh && chmod +x /tmp/i.sh && bash /tmp/i.sh
+# curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/cursor/casaos-install-script-1b99/scripts/install-boxarr-zimaos.sh -o /tmp/i.sh && sed -i 's/\r$//' /tmp/i.sh && chmod +x /tmp/i.sh && sudo bash /tmp/i.sh
 #
 # With keys:
-# curl -fsSL ... -o /tmp/i.sh && sed -i 's/\r$//' /tmp/i.sh && chmod +x /tmp/i.sh && TORBOX_API_KEY='key' TMDB_API_KEY='key' bash /tmp/i.sh
+# curl -fsSL ... -o /tmp/i.sh && sed -i 's/\r$//' /tmp/i.sh && chmod +x /tmp/i.sh && sudo TORBOX_API_KEY='key' TMDB_API_KEY='key' bash /tmp/i.sh
 
 set -euo pipefail
 
@@ -42,7 +42,10 @@ PGID="${BOXARR_PGID:-1000}"
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
-[[ "${EUID:-$(id -u)}" -eq 0 ]] || die "run as root over SSH (you should already be root on ZimaOS SSH)"
+if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
+  command -v sudo >/dev/null 2>&1 || die "run as root: sudo bash /tmp/i.sh"
+  exec sudo -E bash "$0" "$@"
+fi
 
 command -v docker >/dev/null 2>&1 || die "docker not found"
 [[ -e /dev/fuse ]] || die "/dev/fuse missing"
