@@ -320,12 +320,27 @@ echo "  ${LIBRARY}  →  /mnt/library"
 echo "  ${TORBOX_MOUNT}  →  /mnt/torbox"
 echo
 echo "Boxarr Prowlarr URL (pre-configured): ${PROWLARR_PROXY_URL}"
-echo "Seerr API key: ${SEERR_KEY}"
+echo
+echo "── Seerr API key (use for BOTH Sonarr + Radarr in Seerr) ──"
+echo "  ${SEERR_KEY}"
+echo
+echo "  Get key later:  show-seerr-key.sh"
+echo "  Or Boxarr UI:   Settings → Requests → Generate"
+echo "  Or sqlite:      SELECT value FROM settings WHERE key='seerr.api_keys';"
+echo
+echo "── Seerr → Settings → Services ──"
+echo "  Option 1 (hostname / port / URL base):"
+echo "    Sonarr:  boxarr : 8080  base /sonarr   API ${SEERR_KEY}"
+echo "    Radarr:  boxarr : 8080  base /radarr   API ${SEERR_KEY}"
+echo "  Option 2 (full URL field):"
+echo "    Sonarr:  http://boxarr:8080/sonarr"
+echo "    Radarr:  http://boxarr:8080/radarr"
+echo "  Set quality profile + root folder on each. Docs: docs/seerr-setup.md"
 echo
 echo "Next steps:"
 echo "  1. Prowlarr http://${IP}:9696 — add TPB (+ optional indexers; avoid YTS if magnets fail)"
 echo "  2. Boxarr http://${IP}:8181 — Settings → TorBox: paste API key if empty"
-echo "  3. Seerr http://${IP}:5055 — add Sonarr+Radarr → http://boxarr:8080/sonarr and /radarr"
+echo "  3. Seerr http://${IP}:5055 — see docs/seerr-setup.md (Sonarr + Radarr → Boxarr)"
 echo
 echo "After reboot, TorBox remounts automatically (systemd boxarr-torbox-mount)."
 echo "  sudo systemctl status boxarr-torbox-mount"

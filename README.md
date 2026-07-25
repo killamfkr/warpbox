@@ -55,7 +55,17 @@ The installer:
 
 **Boxarr:** Settings → TorBox → paste API key if empty. Prowlarr URL is pre-set to the torrent proxy.
 
-**Seerr:** Settings → Services → add Sonarr + Radarr both pointing at `http://boxarr:8080/sonarr` and `/radarr` with your Boxarr API key.
+**Seerr:** connect Boxarr as both Sonarr and Radarr — see **[docs/seerr-setup.md](docs/seerr-setup.md)** for full steps.
+
+Quick version:
+
+| | Sonarr | Radarr |
+|---|--------|--------|
+| **API key** | From install output, Boxarr → Settings → Requests, or `show-seerr-key.sh` | *(same key)* |
+| **URL (option 2)** | `http://boxarr:8080/sonarr` | `http://boxarr:8080/radarr` |
+| **Host / port / base (option 1)** | `boxarr` · `8080` · `/sonarr` | `boxarr` · `8080` · `/radarr` |
+
+Set default quality profile + root folder on each, then click **Test**.
 
 **Plex volumes:**
 
@@ -96,6 +106,7 @@ All scripts live in [`scripts/`](scripts/). Run as root on ZimaOS.
 | [`fix-stack.sh`](scripts/fix-stack.sh) | Repair permissions, mount, compose |
 | [`diagnose.sh`](scripts/diagnose.sh) | Quick health check |
 | [`clear-boxarr-cooldown.sh`](scripts/clear-boxarr-cooldown.sh) | Clear stale Boxarr TorBox cooldown |
+| [`show-seerr-key.sh`](scripts/show-seerr-key.sh) | Print Seerr API key + connection cheat sheet |
 | [`test-torbox-submit.sh`](scripts/test-torbox-submit.sh) | Test TorBox API magnet submit |
 | [`install-prowlarr-proxy.sh`](scripts/install-prowlarr-proxy.sh) | Reinstall Prowlarr torrent proxy |
 
