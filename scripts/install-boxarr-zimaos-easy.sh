@@ -185,7 +185,7 @@ services:
       - ${TORBOX_MOUNT}:/data
     command:
       - mount
-      - torbox:
+      - "torbox:"
       - /data
       - --allow-other
       - --allow-non-empty

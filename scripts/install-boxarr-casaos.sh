@@ -206,7 +206,7 @@ services:
           propagation: rshared
     command:
       - mount
-      - torbox:
+      - "torbox:"
       - /data
       - --allow-other
       - --allow-non-empty
