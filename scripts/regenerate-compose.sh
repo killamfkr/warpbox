@@ -44,13 +44,27 @@ read_sqlite() {
   sqlite3 "${db}" "SELECT value FROM settings WHERE key='${key}' LIMIT 1;" 2>/dev/null || true
 }
 
-# PUID/PGID from old compose or Plex
+# PUID/PGID — must be numeric (broken compose may have parsed "user" as a username)
+for n in $(docker ps --format '{{.Names}}' 2>/dev/null | grep -i plex || true); do
+  u="$(docker exec "$n" id -u 2>/dev/null || true)"
+  g="$(docker exec "$n" id -g 2>/dev/null || true)"
+  if [[ -n "$u" && "$u" =~ ^[0-9]+$ ]]; then
+    PUID="$u"; PGID="$g"
+    break
+  fi
+done
+
 if [[ -f "${COMPOSE}" ]]; then
-  u="$(grep -E '^[[:space:]]*user:' "${COMPOSE}" | head -1 | sed -E 's/.*user:[[:space:]]*"([^"]+)".*/\1/')"
-  if [[ -n "${u}" && "${u}" == *:* ]]; then
+  u="$(grep -E '^[[:space:]]+user:' "${COMPOSE}" 2>/dev/null | head -1 \
+    | sed -nE 's/^[[:space:]]+user:[[:space:]]*"([0-9]+:[0-9]+)".*/\1/p')"
+  if [[ -n "${u}" ]]; then
     PUID="${u%%:*}"; PGID="${u##*:}"
   fi
 fi
+
+[[ "${PUID}" =~ ^[0-9]+$ ]] || PUID=1000
+[[ "${PGID}" =~ ^[0-9]+$ ]] || PGID=1000
+say "using uid:gid ${PUID}:${PGID}"
 
 PKEY="$(sed -n 's/.*<ApiKey>\([^<]*\)<\/ApiKey>.*/\1/p' "${PROWLARR_CFG}/config.xml" 2>/dev/null | head -1 || true)"
 [[ -n "${PKEY}" ]] || PKEY="$(read_env_from_compose BOXARR_PROWLARR_API_KEY)"
