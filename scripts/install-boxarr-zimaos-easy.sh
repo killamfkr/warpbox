@@ -271,7 +271,7 @@ EOF
 
 say "Validating compose file"
 DC config >/dev/null || { DC config 2>&1; die "docker-compose.yml is invalid — see error above"; }
-ok "compose file valid"
+say "Compose file valid"
 
 # --- clean start ---
 say "Pulling images"
