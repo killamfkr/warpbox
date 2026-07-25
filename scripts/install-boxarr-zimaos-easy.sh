@@ -143,17 +143,25 @@ else
   echo "user_allow_other" > /etc/fuse.conf
 fi
 
-# rclone config
+# rclone config — pass must be obscured (plain API key fails WebDAV auth)
+say "Writing rclone config"
+TORBOX_PASS="$(printf '%s' "${TORBOX_API_KEY}" | docker run --rm -i rclone/rclone obscure -)"
 cat > "${RCLONE_CFG}/rclone.conf" <<EOF
 [torbox]
 type = webdav
 url = https://webdav.torbox.app/
 vendor = other
 user = torbox
-pass = ${TORBOX_API_KEY}
+pass = ${TORBOX_PASS}
 EOF
 chmod 600 "${RCLONE_CFG}/rclone.conf"
 chown "${PUID}:${PGID}" "${RCLONE_CFG}/rclone.conf"
+
+say "Testing TorBox WebDAV (rclone ls)"
+docker run --rm \
+  -v "${RCLONE_CFG}/rclone.conf:/config/rclone/rclone.conf:ro" \
+  rclone/rclone ls "torbox:" --max-depth 1 2>&1 | head -5 || \
+  die "TorBox WebDAV test failed — check TORBOX_API_KEY"
 
 # --- compose (rclone command MUST be array — not "command: >") ---
 SEERR_BLOCK=""
@@ -193,7 +201,11 @@ services:
       - ${RCLONE_CFG}/rclone.conf:/config/rclone/rclone.conf:ro
       - ${RCLONE_CFG}/cache:/cache
       - /etc/fuse.conf:/etc/fuse.conf:ro
-      - ${TORBOX_MOUNT}:/data
+      - type: bind
+        source: ${TORBOX_MOUNT}
+        target: /data
+        bind:
+          propagation: rshared
     command:
       - "mount"
       - "torbox:"
@@ -244,7 +256,11 @@ services:
     volumes:
       - ${BOXARR_CFG}:/config
       - ${LIBRARY}:/mnt/library
-      - ${TORBOX_MOUNT}:/mnt/torbox
+      - type: bind
+        source: ${TORBOX_MOUNT}
+        target: /mnt/torbox
+        bind:
+          propagation: rslave
     networks:
       - boxarr-net
 
@@ -290,8 +306,14 @@ for i in $(seq 1 60); do
     die "boxarr-rclone crashed — see logs above"
   }
   docker logs boxarr-rclone 2>&1 | grep -qi 'unknown command' && die "rclone command broken in compose"
-  [[ -n "$(ls -A "${TORBOX_MOUNT}" 2>/dev/null)" ]] && break
-  [[ "$i" -eq 60 ]] && warn "TorBox mount still empty after 2min — continuing anyway"
+  if [[ -n "$(ls -A "${TORBOX_MOUNT}" 2>/dev/null)" ]]; then
+    ok "TorBox visible on host at ${TORBOX_MOUNT}"
+    break
+  fi
+  if [[ "$i" -eq 60 ]]; then
+    docker logs boxarr-rclone --tail 30
+    die "TorBox mount still empty after 2min — see rclone logs above"
+  fi
   sleep 2
 done
 say "rclone running — ${TORBOX_MOUNT} mounted"

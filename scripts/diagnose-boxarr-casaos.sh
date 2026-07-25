@@ -52,6 +52,31 @@ echo "=== docker ps ==="
 docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' 2>&1 | grep -E 'boxarr|NAMES' || docker ps 2>&1
 echo
 
+echo "=== mount propagation ==="
+findmnt -T /DATA/Media/torbox 2>/dev/null || echo "findmnt unavailable"
+echo "host torbox entries: $(ls -A /DATA/Media/torbox 2>/dev/null | wc -l)"
+if docker ps --format '{{.Names}}' | grep -qx boxarr-rclone; then
+  echo "probe via alpine (should list TorBox folders if mount works):"
+  docker run --rm -v /DATA/Media/torbox:/torbox:ro alpine ls /torbox 2>&1 | head -8 || true
+fi
+echo
+
+echo "=== rclone WebDAV test ==="
+if [[ -f /DATA/AppData/boxarr-rclone/rclone.conf ]]; then
+  docker run --rm \
+    -v /DATA/AppData/boxarr-rclone/rclone.conf:/config/rclone/rclone.conf:ro \
+    rclone/rclone ls "torbox:" --max-depth 1 2>&1 | head -5 || echo "WebDAV test FAILED"
+else
+  echo "rclone.conf missing"
+fi
+echo
+
+echo "=== compose propagation check ==="
+if [[ -f /DATA/AppData/boxarr-stack/docker-compose.yml ]]; then
+  grep -E 'propagation:|torbox:' /DATA/AppData/boxarr-stack/docker-compose.yml || echo "no propagation flags found"
+fi
+echo
+
 echo "=== recent logs ==="
 for c in boxarr boxarr-rclone boxarr-prowlarr boxarr-seerr; do
   if docker ps -a --format '{{.Names}}' | grep -qx "$c"; then
