@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# Restore docker-compose.yml from the newest backup if the current file is invalid.
-#
-# sudo bash repair-compose.sh
+# Restore docker-compose.yml from backup, or regenerate if no backup exists.
 
 set -euo pipefail
 
@@ -10,6 +8,9 @@ ok()  { echo "OK:  $*"; }
 say() { echo "==> $*"; }
 
 [[ "${EUID:-$(id -u)}" -eq 0 ]] || exec sudo -E bash "$0" "$@"
+
+RAW_BASE="${BOXARR_ZIMAOS_RAW:-https://raw.githubusercontent.com/killamfkr/warpbox/boxarr-zimaos/scripts}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 COMPOSE="/DATA/AppData/boxarr-stack/docker-compose.yml"
 [[ -d /media/Storage ]] && [[ ! -d /DATA ]] && COMPOSE="/media/Storage/AppData/boxarr-stack/docker-compose.yml"
@@ -28,17 +29,21 @@ fi
 
 say "compose is invalid — searching for backups"
 mapfile -t backups < <(ls -t "${COMPOSE}".bak.* 2>/dev/null || true)
-[[ ${#backups[@]} -gt 0 ]] || die "no backups at ${COMPOSE}.bak.* — paste compose for manual fix"
 
 for bak in "${backups[@]}"; do
   say "trying ${bak}"
   if docker compose -f "${bak}" config >/dev/null 2>&1; then
     cp -a "${bak}" "${COMPOSE}"
     ok "restored ${COMPOSE} from ${bak}"
-    DC config >/dev/null
-    ok "compose validates"
     exit 0
   fi
 done
 
-die "no valid backup found — restore manually from ${COMPOSE}.bak.*"
+say "no valid backup — regenerating compose from Boxarr/Prowlarr data"
+REGEN="${SCRIPT_DIR}/regenerate-compose.sh"
+if [[ ! -f "${REGEN}" ]]; then
+  curl -fsSL "${RAW_BASE}/regenerate-compose.sh" -o /tmp/regenerate-compose.sh
+  REGEN="/tmp/regenerate-compose.sh"
+fi
+chmod +x "${REGEN}"
+bash "${REGEN}"

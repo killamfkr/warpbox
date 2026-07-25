@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
 # Start FlareSolverr for Prowlarr (docker run — does NOT edit docker-compose.yml).
-#
-# curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/boxarr-zimaos/scripts/install-flaresolverr.sh -o /tmp/install-flaresolverr.sh
-# sudo bash /tmp/install-flaresolverr.sh
 
 set -euo pipefail
 
@@ -14,34 +11,14 @@ say() { echo "==> $*"; }
 
 RAW_BASE="${BOXARR_ZIMAOS_RAW:-https://raw.githubusercontent.com/killamfkr/warpbox/boxarr-zimaos/scripts}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-COMPOSE="/DATA/AppData/boxarr-stack/docker-compose.yml"
 TZ="${TZ:-Etc/UTC}"
-
-if [[ -d /media/Storage ]] && [[ ! -d /DATA ]]; then
-  COMPOSE="/media/Storage/AppData/boxarr-stack/docker-compose.yml"
-fi
-
-# If a previous run broke compose, restore backup first
-if [[ -f "${COMPOSE}" ]]; then
-  if ! docker compose -f "${COMPOSE}" config >/dev/null 2>&1 \
-    && ! docker-compose -f "${COMPOSE}" config >/dev/null 2>&1; then
-    say "docker-compose.yml is invalid — restoring backup"
-    REPAIR="${SCRIPT_DIR}/repair-compose.sh"
-    if [[ ! -f "${REPAIR}" ]]; then
-      curl -fsSL "${RAW_BASE}/repair-compose.sh" -o /tmp/repair-compose.sh
-      REPAIR="/tmp/repair-compose.sh"
-    fi
-    chmod +x "${REPAIR}"
-    bash "${REPAIR}" || die "repair-compose.sh failed — fix ${COMPOSE} manually"
-  fi
-fi
 
 docker network inspect boxarr-net >/dev/null 2>&1 || docker network create boxarr-net
 
 say "Removing old FlareSolverr container"
 docker rm -f flaresolverr 2>/dev/null || true
 
-say "Starting FlareSolverr (docker run — compose file not modified)"
+say "Starting FlareSolverr"
 docker run -d \
   --name flaresolverr \
   --restart unless-stopped \
@@ -69,8 +46,4 @@ chmod +x "${CFG}"
 bash "${CFG}"
 
 ok "FlareSolverr running"
-echo "  container: flaresolverr"
-echo "  url:       http://flaresolverr:8191"
-echo "  tag:       flaresolverr (add on Cloudflare indexers in Prowlarr)"
-echo
-echo "Verify: sudo docker ps | grep flaresolverr"
+echo "  sudo docker ps | grep flaresolverr"
