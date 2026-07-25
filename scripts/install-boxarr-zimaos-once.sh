@@ -223,11 +223,15 @@ for c in boxarr boxarr-rclone boxarr-prowlarr boxarr-seerr boxarr-prowlarr-proxy
 done
 docker ps -a --format '{{.Names}}' | grep -E '^boxarr-prowlarr-proxy' | xargs -r docker rm -f 2>/dev/null || true
 
-# --- host TorBox mount ---
-say "Mounting TorBox on host (rclone)"
-curl -fsSL "${RAW_BASE}/lib-rclone-mount.sh" -o /tmp/lib-rclone-mount.sh
+# --- host TorBox mount (systemd — starts on boot) ---
+say "Mounting TorBox on host (rclone + systemd)"
+LIB="${SCRIPT_DIR}/lib-rclone-mount.sh"
+if [[ ! -f "${LIB}" ]]; then
+  curl -fsSL "${RAW_BASE}/lib-rclone-mount.sh" -o /tmp/lib-rclone-mount.sh
+  LIB="/tmp/lib-rclone-mount.sh"
+fi
 # shellcheck disable=SC1091
-. /tmp/lib-rclone-mount.sh
+. "${LIB}"
 export TORBOX_MOUNT="${TORBOX_MOUNT}" RCLONE_APPDATA="${RCLONE_CFG}" BOXARR_PUID="${PUID}" BOXARR_PGID="${PGID}"
 rclone_mount_paths
 
@@ -238,11 +242,11 @@ if ! rclone_mount_bin; then
   rclone_mount_bin || die "rclone install failed"
 fi
 
-if ! rclone_mount_restart_host; then
-  die "TorBox mount empty — see ${RCLONE_CFG}/mount.log"
+if ! rclone_mount_enable_boot; then
+  die "TorBox mount failed — see ${RCLONE_CFG}/mount.log and run enable-rclone-startup.sh"
 fi
 ok "TorBox mounted at ${TORBOX_MOUNT}"
-ok "enabled boxarr-torbox-mount.service (host rclone — not docker)"
+ok "boxarr-torbox-mount.service enabled=$(systemctl is-enabled boxarr-torbox-mount.service 2>/dev/null || echo unknown)"
 
 # --- start prowlarr, get key ---
 say "Starting Prowlarr"

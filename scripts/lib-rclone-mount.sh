@@ -137,19 +137,47 @@ EOF
   echo host > "${RCLONE_APPDATA}/mount-mode"
 }
 
-rclone_mount_restart_host() {
+# Install systemd unit, enable on boot, start mount, and verify.
+rclone_mount_enable_boot() {
   rclone_mount_paths
+  command -v systemctl >/dev/null 2>&1 || return 1
+  rclone_mount_bin || return 1
   [[ -f "${RCLONE_APPDATA}/rclone.conf" ]] || return 1
+
+  grep -q '^user_allow_other' /etc/fuse.conf 2>/dev/null || \
+    echo "user_allow_other" >> /etc/fuse.conf
 
   docker rm -f boxarr-rclone 2>/dev/null || true
   rclone_mount_unmount
 
-  rclone_mount_bin || return 1
   rclone_mount_write_systemd_unit
+  [[ -f /etc/systemd/system/boxarr-torbox-mount.service ]] || return 1
 
-  if systemctl restart boxarr-torbox-mount.service; then
-    rclone_mount_wait_nonempty 30 && return 0
+  systemctl daemon-reload
+  systemctl enable boxarr-torbox-mount.service
+  systemctl restart boxarr-torbox-mount.service || return 1
+
+  local enabled active
+  enabled="$(systemctl is-enabled boxarr-torbox-mount.service 2>/dev/null || echo unknown)"
+  active="$(systemctl is-active boxarr-torbox-mount.service 2>/dev/null || echo unknown)"
+  [[ "${enabled}" == "enabled" ]] || return 1
+
+  if ! rclone_mount_wait_nonempty 30; then
+    echo "WARN: mount empty after start (active=${active})" >&2
+    tail -15 "${RCLONE_APPDATA}/mount.log" 2>/dev/null >&2 || true
+    return 1
   fi
+  return 0
+}
+
+rclone_mount_restart_host() {
+  rclone_mount_paths
+  [[ -f "${RCLONE_APPDATA}/rclone.conf" ]] || return 1
+
+  if rclone_mount_enable_boot; then
+    return 0
+  fi
+
   echo "--- systemctl status ---" >&2
   systemctl status boxarr-torbox-mount.service --no-pager -l 2>&1 | tail -20 >&2 || true
 

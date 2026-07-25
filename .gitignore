@@ -39,6 +39,9 @@ reports/
 .DS_Store
 Thumbs.db
 
+# Standalone Boxarr ZimaOS stack (published as git branch boxarr-zimaos)
+/boxarr-zimaos/
+
 # Sensitive credentials (keep local only — use .template for structure)
 docs/auth-matrix.md
 
