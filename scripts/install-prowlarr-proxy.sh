@@ -37,6 +37,7 @@ docker run -d \
   --network "${NET}" \
   -e "PROWLARR_UPSTREAM=${PROWLARR_UPSTREAM}" \
   -e "PROWLARR_PROXY_PORT=${PROXY_PORT}" \
+  -e "SANITIZE_MAGNETS=0" \
   -v "${PROXY_DIR}/prowlarr-torrent-proxy.py:/app/prowlarr-torrent-proxy.py:ro" \
   python:3-alpine \
   python3 /app/prowlarr-torrent-proxy.py
@@ -50,8 +51,10 @@ if [[ -n "${PKEY}" ]]; then
 fi
 
 echo "OK: boxarr-prowlarr-proxy running on ${NET}:${PROXY_PORT}"
+echo "     mode: rewrite-only (indexerIds -1 → -2, magnets untouched)"
 echo
 echo "In Boxarr → Settings → Prowlarr → Server URL, set:"
 echo "  http://boxarr-prowlarr-proxy:${PROXY_PORT}"
 echo
+echo "To remove the proxy entirely: disable-prowlarr-proxy.sh"
 echo "Save, then retry Search releases."

@@ -114,10 +114,14 @@ All scripts live in [`scripts/`](scripts/). Run as root on ZimaOS.
 | [`restart-rclone-mount.sh`](scripts/restart-rclone-mount.sh) | Remount TorBox |
 | [`fix-stack.sh`](scripts/fix-stack.sh) | Repair permissions, mount, compose |
 | [`diagnose.sh`](scripts/diagnose.sh) | Quick health check |
-| [`clear-boxarr-cooldown.sh`](scripts/clear-boxarr-cooldown.sh) | Clear stale Boxarr TorBox cooldown |
+| [`clear-boxarr-pause.sh`](scripts/clear-boxarr-pause.sh) | Diagnose/clear Boxarr paused state (cooldown, daily cap, backoff) |
+| [`clear-boxarr-cooldown.sh`](scripts/clear-boxarr-cooldown.sh) | Alias for `clear-boxarr-pause.sh` |
+| [`freeze-boxarr-cooldown.sh`](scripts/freeze-boxarr-cooldown.sh) | Stop Boxarr retries during active TorBox cooldown |
 | [`show-seerr-key.sh`](scripts/show-seerr-key.sh) | Print Seerr API key + connection cheat sheet |
 | [`test-torbox-submit.sh`](scripts/test-torbox-submit.sh) | Test TorBox API magnet submit |
-| [`install-prowlarr-proxy.sh`](scripts/install-prowlarr-proxy.sh) | Reinstall Prowlarr torrent proxy |
+| [`diagnose-boxarr-magnet.sh`](scripts/diagnose-boxarr-magnet.sh) | Diagnose TorBox invalid magnet errors |
+| [`install-prowlarr-proxy.sh`](scripts/install-prowlarr-proxy.sh) | Minimal proxy: Usenet search ID → torrent (no magnet changes) |
+| [`disable-prowlarr-proxy.sh`](scripts/disable-prowlarr-proxy.sh) | Remove proxy; Boxarr → Prowlarr :9696 direct |
 | [`install-flaresolverr.sh`](scripts/install-flaresolverr.sh) | Start FlareSolverr + configure Prowlarr (docker run) |
 | [`repair-compose.sh`](scripts/repair-compose.sh) | Restore or regenerate broken docker-compose.yml |
 | [`regenerate-compose.sh`](scripts/regenerate-compose.sh) | Rebuild compose from Boxarr/Prowlarr data (no backup needed) |
@@ -138,25 +142,82 @@ sudo systemctl restart boxarr-torbox-mount
 curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/boxarr-zimaos/scripts/restart-rclone-mount.sh | sudo bash
 ```
 
-### Boxarr shows cooldown but TorBox dashboard does not
+### Boxarr shows "paused" but TorBox dashboard is clear
 
-Boxarr caches cooldown locally. Clear it:
+Boxarr can look paused for several reasons:
+
+1. **Cached cooldown** — `torbox.cooldown_until` in SQLite (survives restarts)
+2. **Learned daily cap** — `torbox.daily_cap` (reset in TorBox view → *Reset learned limits*)
+3. **Expired TorBox API string** — `/user/me` may return an old `cooldown_until`; Boxarr UI treats any non-empty value as paused even after it expires
+4. **In-memory 429 backoff** — cleared by restarting the `boxarr` container
+
+Run the diagnostic/clear script:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/boxarr-zimaos/scripts/clear-boxarr-cooldown.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/boxarr-zimaos/scripts/clear-boxarr-pause.sh -o /tmp/clear-boxarr-pause.sh
+sudo bash /tmp/clear-boxarr-pause.sh
 ```
 
-### Invalid Magnet Link
-
-Use TPB indexers, not YTS. Reinstall the Prowlarr proxy:
+Then hard-refresh Boxarr in your browser. If grabs still fail, test TorBox directly:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/boxarr-zimaos/scripts/install-prowlarr-proxy.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/boxarr-zimaos/scripts/test-torbox-submit.sh | sudo bash
 ```
+
+### Boxarr hit a real ~24h TorBox cooldown (downloads paused, DMM still works)
+
+Invalid magnet retries and auto-search can trigger a **real** TorBox account cooldown (~24h). DMM may still work for cached torrents; **new Boxarr submits are blocked** until it clears.
+
+**Stop the retry storm now:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/boxarr-zimaos/scripts/freeze-boxarr-cooldown.sh -o /tmp/freeze-boxarr-cooldown.sh
+sudo bash /tmp/freeze-boxarr-cooldown.sh
+```
+
+**Before cooldown ends**, fix magnets (proxy + disable YTS, enable TPB). **Do not search or grab** in Boxarr until the dashboard shows **TorBox cooldown: Clear**.
+
+
+### Invalid Magnet Link (TorBox rejects magnet)
+
+TorBox returns *"Your torrent could not be added because the magnet link is invalid"* when the indexer sends a bad magnet — **YTS is the usual culprit**. TPB works reliably.
+
+**1. Diagnose:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/boxarr-zimaos/scripts/diagnose-boxarr-magnet.sh -o /tmp/diagnose-boxarr-magnet.sh
+sudo bash /tmp/diagnose-boxarr-magnet.sh
+```
+
+**2. Reinstall the magnet-sanitizing proxy** (strips YTS magnets, rebuilds valid btih hashes):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/boxarr-zimaos/scripts/install-prowlarr-proxy.sh -o /tmp/install-prowlarr-proxy.sh
+sudo bash /tmp/install-prowlarr-proxy.sh
+```
+
+**3. In Boxarr → Settings → Prowlarr**, set URL to `http://boxarr-prowlarr-proxy:9697` and save.
+
+**4. In Prowlarr → Indexers:** enable **The Pirate Bay**, disable **YTS/YIFY**.
+
+**5. Retry the grab** — pick a **TPB** release, not YTS.
 
 ### Prowlarr search returns HTTP 400
 
-Boxarr searches with Usenet indexer IDs. The torrent proxy fixes this — Boxarr Prowlarr URL must be `http://boxarr-prowlarr-proxy:9697`.
+**Boxarr** (not Prowlarr) sends `indexerIds=-1` on every search — that means *Usenet indexers only*. On a torrent-only Prowlarr that returns HTTP 400.
+
+The `boxarr-prowlarr-proxy` container only rewrites that one parameter to `-2` (torrent indexers). It does **not** change magnets unless you opt in with `SANITIZE_MAGNETS=1`.
+
+```bash
+# minimal proxy (rewrite only)
+sudo bash install-prowlarr-proxy.sh
+# Boxarr → Prowlarr URL: http://boxarr-prowlarr-proxy:9697
+
+# remove proxy, talk to Prowlarr directly (searches may 400 again)
+sudo bash disable-prowlarr-proxy.sh
+```
+
+There is no Boxarr setting to disable Usenet searches — that is hardcoded in Boxarr's Prowlarr client.
 
 ### “All indexer proxies are unavailable due to failures”
 
