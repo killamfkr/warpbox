@@ -96,6 +96,12 @@ fi
 
 SEERR_KEY="${BOXARR_SEERR_API_KEY:-$(openssl rand -hex 16 2>/dev/null || echo "seerr$(date +%s)")}"
 
+# escape values for YAML double-quoted strings
+yq() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+TORBOX_Y="$(yq "$TORBOX_API_KEY")"
+TMDB_Y="$(yq "$TMDB_API_KEY")"
+SEERR_Y="$(yq "$SEERR_KEY")"
+
 say "ZimaOS Boxarr easy install"
 say "  host base:  ${BASE}"
 say "  torbox dir: ${TORBOX_MOUNT}"
@@ -158,14 +164,15 @@ if [[ "${INSTALL_SEERR}" == "1" ]]; then
     init: true
     restart: unless-stopped
     environment:
-      - LOG_LEVEL=info
-      - TZ=${TZ}
-      - PORT=5055
+      LOG_LEVEL: info
+      TZ: \"${TZ}\"
+      PORT: \"5055\"
     volumes:
       - ${SEERR_CFG}:/app/config
     ports:
-      - 5055:5055
-    networks: [boxarr-net]"
+      - \"5055:5055\"
+    networks:
+      - boxarr-net"
 fi
 
 say "Writing ${INSTALL_DIR}/docker-compose.yml"
@@ -175,82 +182,95 @@ services:
     image: rclone/rclone:latest
     container_name: boxarr-rclone
     restart: unless-stopped
-    cap_add: [SYS_ADMIN]
-    devices: [/dev/fuse:/dev/fuse:rwm]
-    security_opt: [apparmor:unconfined]
+    cap_add:
+      - SYS_ADMIN
+    devices:
+      - "/dev/fuse:/dev/fuse:rwm"
+    security_opt:
+      - "apparmor:unconfined"
     volumes:
       - ${RCLONE_CFG}/rclone.conf:/config/rclone/rclone.conf:ro
       - ${RCLONE_CFG}/cache:/cache
       - /etc/fuse.conf:/etc/fuse.conf:ro
       - ${TORBOX_MOUNT}:/data
     command:
-      - mount
+      - "mount"
       - "torbox:"
-      - /data
-      - --allow-other
-      - --allow-non-empty
-      - --dir-cache-time
-      - 1h
-      - --vfs-cache-mode
-      - full
-      - --vfs-cache-max-size
-      - 50G
-      - --uid
+      - "/data"
+      - "--allow-other"
+      - "--allow-non-empty"
+      - "--dir-cache-time"
+      - "1h"
+      - "--vfs-cache-mode"
+      - "full"
+      - "--vfs-cache-max-size"
+      - "50G"
+      - "--uid"
       - "${PUID}"
-      - --gid
+      - "--gid"
       - "${PGID}"
-      - --umask
+      - "--umask"
       - "002"
-      - --cache-dir
-      - /cache
-      - --log-level
-      - INFO
-    networks: [boxarr-net]
+      - "--cache-dir"
+      - "/cache"
+      - "--log-level"
+      - "INFO"
+    networks:
+      - boxarr-net
 
   boxarr:
     image: ghcr.io/radaiko/boxarr:latest
     container_name: boxarr
     restart: unless-stopped
     user: "${PUID}:${PGID}"
-    depends_on: [boxarr-rclone]
+    depends_on:
+      - boxarr-rclone
     environment:
-      - BOXARR_DATABASE_PATH=/config/boxarr.db
-      - BOXARR_LISTEN_ADDR=:8080
-      - TZ=${TZ}
-      - BOXARR_TORBOX_API_TOKEN=${TORBOX_API_KEY}
-      - BOXARR_PROWLARR_URL=http://boxarr-prowlarr:9696
-      - BOXARR_PROWLARR_API_KEY=__PROWLARR__
-      - BOXARR_TMDB_API_KEY=${TMDB_API_KEY}
-      - BOXARR_SEERR_API_KEYS=${SEERR_KEY}
-      - BOXARR_WEBDAV_MOUNT_ROOT=/mnt/torbox
-      - BOXARR_MOVIE_LIBRARY_ROOT=/mnt/library/movies
-      - BOXARR_TV_LIBRARY_ROOT=/mnt/library/tv
-      - BOXARR_ANIME_LIBRARY_ROOT=/mnt/library/anime
-    ports: ["8181:8080"]
+      BOXARR_DATABASE_PATH: /config/boxarr.db
+      BOXARR_LISTEN_ADDR: ":8080"
+      TZ: "${TZ}"
+      BOXARR_TORBOX_API_TOKEN: "${TORBOX_Y}"
+      BOXARR_PROWLARR_URL: "http://boxarr-prowlarr:9696"
+      BOXARR_PROWLARR_API_KEY: "__PROWLARR__"
+      BOXARR_TMDB_API_KEY: "${TMDB_Y}"
+      BOXARR_SEERR_API_KEYS: "${SEERR_Y}"
+      BOXARR_WEBDAV_MOUNT_ROOT: /mnt/torbox
+      BOXARR_MOVIE_LIBRARY_ROOT: /mnt/library/movies
+      BOXARR_TV_LIBRARY_ROOT: /mnt/library/tv
+      BOXARR_ANIME_LIBRARY_ROOT: /mnt/library/anime
+    ports:
+      - "8181:8080"
     volumes:
       - ${BOXARR_CFG}:/config
       - ${LIBRARY}:/mnt/library
       - ${TORBOX_MOUNT}:/mnt/torbox
-    networks: [boxarr-net]
+    networks:
+      - boxarr-net
 
   boxarr-prowlarr:
     image: lscr.io/linuxserver/prowlarr:latest
     container_name: boxarr-prowlarr
     restart: unless-stopped
     environment:
-      - PUID=${PUID}
-      - PGID=${PGID}
-      - TZ=${TZ}
+      PUID: "${PUID}"
+      PGID: "${PGID}"
+      TZ: "${TZ}"
     volumes:
       - ${PROWLARR_CFG}:/config
-    ports: ["9696:9696"]
-    networks: [boxarr-net]
+    ports:
+      - "9696:9696"
+    networks:
+      - boxarr-net
 ${SEERR_BLOCK}
 
 networks:
   boxarr-net:
     name: boxarr-net
 EOF
+
+say "Validating compose file"
+DC config >/dev/null || { DC config 2>&1; die "docker-compose.yml is invalid — see error above"; }
+ok "compose file valid"
 
 # --- clean start ---
 say "Pulling images"
