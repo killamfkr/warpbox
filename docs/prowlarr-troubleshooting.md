@@ -23,48 +23,30 @@ curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/boxarr-zimaos/scr
 
 This adds `flaresolverr` to compose (if missing), starts the container, and registers it in Prowlarr with tag `flaresolverr`.
 
-### Fix B — you use TPB / simple indexers only
+### Fix B — TPB only (no FlareSolverr needed)
 
 You usually **do not need** FlareSolverr for The Pirate Bay.
 
 1. Open Prowlarr → **Settings** → **Indexer Proxies**
-2. Open each entry (often FlareSolverr)
-3. Click **Delete** (or disable if you prefer)
-4. **System** → **Health** — warning should clear after a minute
+2. Delete the FlareSolverr entry
+3. **System** → **Health** — warning should clear after a minute
 
-Then test indexers: **Indexers** → select indexer → **Test**.
+### Fix C — manual Prowlarr settings (FlareSolverr already running)
 
-### Fix B — you need FlareSolverr (Cloudflare indexers)
+Stack container: `flaresolverr` on `boxarr-net` (installed by `install.sh`).
 
-Only if an indexer explicitly requires it.
+Prowlarr → **Settings → Indexer Proxies**:
 
-1. Run FlareSolverr on the same Docker network as Prowlarr:
+- **Host:** `http://flaresolverr:8191`
+- **Tags:** `flaresolverr` — add the same tag on Cloudflare indexers (e.g. 1337x)
 
-```bash
-docker run -d \
-  --name flaresolverr \
-  --restart unless-stopped \
-  --network boxarr-net \
-  -e LOG_LEVEL=info \
-  flaresolverr/flaresolverr
-```
-
-2. Prowlarr → **Settings** → **Indexer Proxies** → edit FlareSolverr:
-   - **Host:** `flaresolverr` (no `http://`)
-   - **Port:** `8191`
-   - **Tags:** e.g. `flaresolverr` — **required** or Prowlarr disables the proxy
-3. On each indexer that needs it → **Tags** → add the same tag (e.g. `flaresolverr`)
-4. **Test** the proxy, then **Test** the indexer
-
-Verify from host:
+Verify:
 
 ```bash
-docker run --rm --network boxarr-net curlimages/curl:latest -sf http://flaresolverr:8191/ | head -c 200
+sudo docker run --rm --network boxarr-net curlimages/curl:latest -sf http://flaresolverr:8191/ | head -c 200
 ```
 
-Should return JSON with `"status":"ok"`.
-
-### Fix C — wrong URL format
+### Fix D — wrong URL format
 
 Some Prowlarr versions want **hostname only**, not a full URL:
 

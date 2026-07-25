@@ -110,7 +110,8 @@ All scripts live in [`scripts/`](scripts/). Run as root on ZimaOS.
 | [`show-seerr-key.sh`](scripts/show-seerr-key.sh) | Print Seerr API key + connection cheat sheet |
 | [`test-torbox-submit.sh`](scripts/test-torbox-submit.sh) | Test TorBox API magnet submit |
 | [`install-prowlarr-proxy.sh`](scripts/install-prowlarr-proxy.sh) | Reinstall Prowlarr torrent proxy |
-| [`install-flaresolverr.sh`](scripts/install-flaresolverr.sh) | Add/repair FlareSolverr + Prowlarr proxy config |
+| [`install-flaresolverr.sh`](scripts/install-flaresolverr.sh) | Start FlareSolverr + configure Prowlarr (docker run) |
+| [`repair-compose.sh`](scripts/repair-compose.sh) | Restore broken docker-compose.yml from backup |
 
 Example:
 
