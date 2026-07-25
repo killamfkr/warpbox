@@ -155,6 +155,7 @@ rclone_mount_enable_boot() {
 
   systemctl daemon-reload
   systemctl enable boxarr-torbox-mount.service
+  say "starting boxarr-torbox-mount.service (may take up to 60s)..."
   systemctl restart boxarr-torbox-mount.service || return 1
 
   local enabled active
@@ -163,8 +164,10 @@ rclone_mount_enable_boot() {
   [[ "${enabled}" == "enabled" ]] || return 1
 
   if ! rclone_mount_wait_nonempty 30; then
-    echo "WARN: mount empty after start (active=${active})" >&2
+    echo "WARN: mount empty after start (enabled=${enabled} active=${active})" >&2
     tail -15 "${RCLONE_APPDATA}/mount.log" 2>/dev/null >&2 || true
+    # Service is enabled — boot persistence is still OK even if mount is slow
+    [[ "${active}" == "active" ]] && return 0
     return 1
   fi
   return 0

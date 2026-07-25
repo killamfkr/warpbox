@@ -9,6 +9,7 @@ set -euo pipefail
 die() { echo "FAIL: $*" >&2; exit 1; }
 ok()  { echo "OK:  $*"; }
 say() { echo "==> $*"; }
+warn() { echo "WARN: $*" >&2; }
 
 [[ "${EUID:-$(id -u)}" -eq 0 ]] || exec sudo -E bash "$0" "$@"
 
@@ -36,15 +37,34 @@ fi
 ok "rclone binary: ${RCLONE_BIN}"
 
 say "Enabling boxarr-torbox-mount.service (starts on boot)"
-rclone_mount_enable_boot || {
+MOUNT_OK=1
+if ! rclone_mount_enable_boot; then
+  warn "mount setup had issues — checking service anyway"
+  MOUNT_OK=0
   systemctl status boxarr-torbox-mount.service --no-pager -l 2>&1 | tail -25 >&2 || true
-  die "failed to enable/start boxarr-torbox-mount.service"
-}
+fi
 
-sample="$(ls -A "${TORBOX_MOUNT}" 2>/dev/null | head -3 | tr '\n' ' ')"
-ok "TorBox mounted at ${TORBOX_MOUNT}: ${sample}"
-ok "boxarr-torbox-mount.service enabled=$(systemctl is-enabled boxarr-torbox-mount.service) active=$(systemctl is-active boxarr-torbox-mount.service)"
+enabled="$(systemctl is-enabled boxarr-torbox-mount.service 2>/dev/null || echo unknown)"
+active="$(systemctl is-active boxarr-torbox-mount.service 2>/dev/null || echo unknown)"
+
+if [[ "${enabled}" != "enabled" ]]; then
+  die "boxarr-torbox-mount.service is not enabled (got: ${enabled})"
+fi
+
+ok "boxarr-torbox-mount.service enabled=${enabled} active=${active}"
+
+if [[ -n "$(ls -A "${TORBOX_MOUNT}" 2>/dev/null)" ]]; then
+  sample="$(ls -A "${TORBOX_MOUNT}" 2>/dev/null | head -3 | tr '\n' ' ')"
+  ok "TorBox mounted at ${TORBOX_MOUNT}: ${sample}"
+elif [[ "${MOUNT_OK}" -eq 0 ]]; then
+  warn "mount path empty — check: sudo tail -30 ${RCLONE_APPDATA}/mount.log"
+  warn "retry: sudo systemctl restart boxarr-torbox-mount"
+else
+  ok "service enabled (mount may still be loading)"
+fi
+
 echo
-echo "After reboot:"
+echo "After reboot, verify:"
+echo "  sudo systemctl is-enabled boxarr-torbox-mount"
 echo "  sudo systemctl status boxarr-torbox-mount"
 echo "  ls ${TORBOX_MOUNT}"
