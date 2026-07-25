@@ -68,7 +68,7 @@ if echo "${BODY}" | grep -qi 'invalid magnet'; then
   echo "  → API key may be wrong type, or account restricted. Re-copy from torbox.app/settings"
 elif echo "${BODY}" | grep -qi 'cooldown\|rate\|limit'; then
   echo "FAIL: TorBox rate limit / cooldown."
-  echo "  If torbox.app shows no cooldown but Boxarr does, run: clear-boxarr-cooldown.sh"
+  echo "  If torbox.app shows no cooldown but Boxarr still paused, run: clear-boxarr-pause.sh"
 elif [[ "${CODE}" == "401" ]] || [[ "${CODE}" == "403" ]]; then
   echo "FAIL: TorBox auth failed — paste API key again in Boxarr → Settings → Torbox"
 else

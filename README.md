@@ -114,7 +114,8 @@ All scripts live in [`scripts/`](scripts/). Run as root on ZimaOS.
 | [`restart-rclone-mount.sh`](scripts/restart-rclone-mount.sh) | Remount TorBox |
 | [`fix-stack.sh`](scripts/fix-stack.sh) | Repair permissions, mount, compose |
 | [`diagnose.sh`](scripts/diagnose.sh) | Quick health check |
-| [`clear-boxarr-cooldown.sh`](scripts/clear-boxarr-cooldown.sh) | Clear stale Boxarr TorBox cooldown |
+| [`clear-boxarr-pause.sh`](scripts/clear-boxarr-pause.sh) | Diagnose/clear Boxarr paused state (cooldown, daily cap, backoff) |
+| [`clear-boxarr-cooldown.sh`](scripts/clear-boxarr-cooldown.sh) | Alias for `clear-boxarr-pause.sh` |
 | [`show-seerr-key.sh`](scripts/show-seerr-key.sh) | Print Seerr API key + connection cheat sheet |
 | [`test-torbox-submit.sh`](scripts/test-torbox-submit.sh) | Test TorBox API magnet submit |
 | [`install-prowlarr-proxy.sh`](scripts/install-prowlarr-proxy.sh) | Reinstall Prowlarr torrent proxy |
@@ -138,12 +139,26 @@ sudo systemctl restart boxarr-torbox-mount
 curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/boxarr-zimaos/scripts/restart-rclone-mount.sh | sudo bash
 ```
 
-### Boxarr shows cooldown but TorBox dashboard does not
+### Boxarr shows "paused" but TorBox dashboard is clear
 
-Boxarr caches cooldown locally. Clear it:
+Boxarr can look paused for several reasons:
+
+1. **Cached cooldown** — `torbox.cooldown_until` in SQLite (survives restarts)
+2. **Learned daily cap** — `torbox.daily_cap` (reset in TorBox view → *Reset learned limits*)
+3. **Expired TorBox API string** — `/user/me` may return an old `cooldown_until`; Boxarr UI treats any non-empty value as paused even after it expires
+4. **In-memory 429 backoff** — cleared by restarting the `boxarr` container
+
+Run the diagnostic/clear script:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/boxarr-zimaos/scripts/clear-boxarr-cooldown.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/boxarr-zimaos/scripts/clear-boxarr-pause.sh -o /tmp/clear-boxarr-pause.sh
+sudo bash /tmp/clear-boxarr-pause.sh
+```
+
+Then hard-refresh Boxarr in your browser. If grabs still fail, test TorBox directly:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/boxarr-zimaos/scripts/test-torbox-submit.sh | sudo bash
 ```
 
 ### Invalid Magnet Link
