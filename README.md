@@ -120,7 +120,8 @@ All scripts live in [`scripts/`](scripts/). Run as root on ZimaOS.
 | [`show-seerr-key.sh`](scripts/show-seerr-key.sh) | Print Seerr API key + connection cheat sheet |
 | [`test-torbox-submit.sh`](scripts/test-torbox-submit.sh) | Test TorBox API magnet submit |
 | [`diagnose-boxarr-magnet.sh`](scripts/diagnose-boxarr-magnet.sh) | Diagnose TorBox invalid magnet errors |
-| [`install-prowlarr-proxy.sh`](scripts/install-prowlarr-proxy.sh) | Reinstall Prowlarr torrent proxy |
+| [`install-prowlarr-proxy.sh`](scripts/install-prowlarr-proxy.sh) | Minimal proxy: Usenet search ID → torrent (no magnet changes) |
+| [`disable-prowlarr-proxy.sh`](scripts/disable-prowlarr-proxy.sh) | Remove proxy; Boxarr → Prowlarr :9696 direct |
 | [`install-flaresolverr.sh`](scripts/install-flaresolverr.sh) | Start FlareSolverr + configure Prowlarr (docker run) |
 | [`repair-compose.sh`](scripts/repair-compose.sh) | Restore or regenerate broken docker-compose.yml |
 | [`regenerate-compose.sh`](scripts/regenerate-compose.sh) | Rebuild compose from Boxarr/Prowlarr data (no backup needed) |
@@ -203,7 +204,20 @@ sudo bash /tmp/install-prowlarr-proxy.sh
 
 ### Prowlarr search returns HTTP 400
 
-Boxarr searches with Usenet indexer IDs. The torrent proxy fixes this — Boxarr Prowlarr URL must be `http://boxarr-prowlarr-proxy:9697`.
+**Boxarr** (not Prowlarr) sends `indexerIds=-1` on every search — that means *Usenet indexers only*. On a torrent-only Prowlarr that returns HTTP 400.
+
+The `boxarr-prowlarr-proxy` container only rewrites that one parameter to `-2` (torrent indexers). It does **not** change magnets unless you opt in with `SANITIZE_MAGNETS=1`.
+
+```bash
+# minimal proxy (rewrite only)
+sudo bash install-prowlarr-proxy.sh
+# Boxarr → Prowlarr URL: http://boxarr-prowlarr-proxy:9697
+
+# remove proxy, talk to Prowlarr directly (searches may 400 again)
+sudo bash disable-prowlarr-proxy.sh
+```
+
+There is no Boxarr setting to disable Usenet searches — that is hardcoded in Boxarr's Prowlarr client.
 
 ### “All indexer proxies are unavailable due to failures”
 

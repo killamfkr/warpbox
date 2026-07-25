@@ -9,57 +9,51 @@ proxy = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(proxy)
 
 
+class ProxyRewriteTests(unittest.TestCase):
+    def test_rewrites_usenet_to_torrent(self):
+        out = proxy.rewrite_search_path(
+            "/api/v1/search?query=test&type=search&indexerIds=-1"
+        )
+        self.assertIn("indexerIds=-2", out)
+
+    def test_leaves_explicit_torrent_ids(self):
+        path = "/api/v1/search?query=test&indexerIds=5"
+        self.assertEqual(proxy.rewrite_search_path(path), path)
+
+    def test_passes_through_non_search(self):
+        path = "/api/v1/indexer"
+        self.assertEqual(proxy.rewrite_search_path(path), path)
+
+
 class ProxySanitizeTests(unittest.TestCase):
-    def test_valid_hex_magnet(self):
-        h = "a" * 40
-        self.assertTrue(proxy.valid_magnet(f"magnet:?xt=urn:btih:{h}"))
-
-    def test_rejects_missing_hash(self):
-        self.assertFalse(proxy.valid_magnet("magnet:?dn=test"))
-
-    def test_rejects_short_hash(self):
-        self.assertFalse(proxy.valid_magnet("magnet:?xt=urn:btih:abc"))
-
-    def test_normalizes_base32_hash(self):
-        # Ubuntu 22.04 ISO hash in base32
-        b32 = "CI6PQXATNOQ6D4FBM7ID7P3ERVMKBTQY"
-        hexh = proxy.normalize_info_hash(b32)
-        self.assertEqual(len(hexh), 40)
-        self.assertTrue(proxy.valid_magnet(f"magnet:?xt=urn:btih:{b32}"))
-
-    def test_strips_yts_magnet_when_download_present(self):
+    def test_no_sanitize_by_default(self):
         item = {
             "protocol": "torrent",
             "indexer": "YTS",
-            "magnetUrl": "magnet:?xt=urn:btih:" + ("b" * 40),
-            "downloadUrl": "http://prowlarr/dl/1",
-            "infoHash": "b" * 40,
-            "title": "Movie 2020",
-        }
-        self.assertTrue(proxy.sanitize_release(item))
-        self.assertEqual(item["magnetUrl"], "")
-
-    def test_rebuilds_from_infohash_when_magnet_invalid(self):
-        item = {
-            "protocol": "torrent",
-            "indexer": "The Pirate Bay",
             "magnetUrl": "magnet:?dn=broken",
             "infoHash": "c" * 40,
-            "title": "Movie",
         }
-        self.assertTrue(proxy.sanitize_release(item))
-        self.assertIn("urn:btih:" + ("c" * 40), item["magnetUrl"])
+        body = proxy.maybe_sanitize_search_results(
+            __import__("json").dumps([item]).encode()
+        )
+        self.assertIn(b"broken", body)
 
-    def test_clears_magnet_when_hash_mismatch(self):
-        item = {
-            "protocol": "torrent",
-            "indexer": "TPB",
-            "magnetUrl": "magnet:?xt=urn:btih:" + ("d" * 40),
-            "infoHash": "e" * 40,
-            "title": "Movie",
-        }
-        self.assertTrue(proxy.sanitize_release(item))
-        self.assertIn("urn:btih:" + ("e" * 40), item["magnetUrl"])
+    def test_sanitize_when_enabled(self):
+        proxy.SANITIZE_MAGNETS = True
+        try:
+            item = {
+                "protocol": "torrent",
+                "magnetUrl": "magnet:?dn=broken",
+                "infoHash": "c" * 40,
+                "title": "Movie",
+            }
+            body = proxy.maybe_sanitize_search_results(
+                __import__("json").dumps([item]).encode()
+            )
+            self.assertIn(b"urn:btih:", body)
+            self.assertNotIn(b"dn=broken", body)
+        finally:
+            proxy.SANITIZE_MAGNETS = False
 
 
 if __name__ == "__main__":
