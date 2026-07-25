@@ -53,6 +53,12 @@ fi
 
 ok "boxarr-torbox-mount.service enabled=${enabled} active=${active}"
 
+# Show whether boot hook is registered
+if systemctl show boxarr-torbox-mount.service -p WantedBy --value 2>/dev/null | grep -q multi-user; then
+  ok "registered for boot (multi-user.target)"
+fi
+[[ -f /etc/cron.d/boxarr-torbox-mount ]] && ok "cron @reboot fallback installed (90s delay)"
+
 if [[ -n "$(ls -A "${TORBOX_MOUNT}" 2>/dev/null)" ]]; then
   sample="$(ls -A "${TORBOX_MOUNT}" 2>/dev/null | head -3 | tr '\n' ' ')"
   ok "TorBox mounted at ${TORBOX_MOUNT}: ${sample}"

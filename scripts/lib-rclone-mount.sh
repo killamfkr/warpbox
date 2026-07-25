@@ -105,35 +105,59 @@ rclone_mount_write_systemd_unit() {
   fusermount_bin || true
   local unit="/etc/systemd/system/boxarr-torbox-mount.service"
   local fm="${FUSERMOUNT_BIN:-/usr/bin/fusermount}"
+  local start_script="${RCLONE_APPDATA}/boxarr-torbox-mount-start.sh"
+  local repo_start="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)/boxarr-torbox-mount-start.sh"
+
+  if [[ -f "${repo_start}" ]]; then
+    cp -a "${repo_start}" "${start_script}"
+  else
+    # Inline minimal copy when sourced from /tmp
+    curl -fsSL "${BOXARR_ZIMAOS_RAW:-https://raw.githubusercontent.com/killamfkr/warpbox/boxarr-zimaos/scripts}/boxarr-torbox-mount-start.sh" \
+      -o "${start_script}" 2>/dev/null || true
+  fi
+  chmod +x "${start_script}" 2>/dev/null || true
+
   cat > "${unit}" <<EOF
 [Unit]
 Description=TorBox rclone mount for Boxarr
-After=network-online.target docker.service
+Documentation=https://github.com/killamfkr/warpbox/tree/boxarr-zimaos
+DefaultDependencies=yes
+After=local-fs.target network-online.target
 Wants=network-online.target
+Before=docker.service
 
 [Service]
-Type=forking
+Type=simple
 User=root
+Environment=TORBOX_MOUNT=${TORBOX_MOUNT}
+Environment=RCLONE_APPDATA=${RCLONE_APPDATA}
+Environment=RCLONE_BIN=${RCLONE_BIN}
+Environment=BOXARR_PUID=${PUID}
+Environment=BOXARR_PGID=${PGID}
 ExecStartPre=-${fm} -uz ${TORBOX_MOUNT}
-ExecStartPre=-/usr/bin/docker rm -f boxarr-rclone
-ExecStart=${RCLONE_BIN} mount torbox: ${TORBOX_MOUNT} \\
-  --config ${RCLONE_APPDATA}/rclone.conf \\
-  --allow-other --allow-non-empty \\
-  --dir-cache-time 1h --vfs-cache-mode full --vfs-cache-max-size 50G \\
-  --cache-dir ${RCLONE_APPDATA}/cache \\
-  --uid ${PUID} --gid ${PGID} --umask 002 \\
-  --log-file ${RCLONE_APPDATA}/mount.log --log-level INFO \\
-  --daemon
+ExecStartPre=-/usr/bin/pkill -f "rclone mount torbox: ${TORBOX_MOUNT}"
+ExecStart=${start_script}
 ExecStop=-${fm} -uz ${TORBOX_MOUNT}
 Restart=on-failure
-RestartSec=10
-TimeoutStartSec=120
+RestartSec=15
+StartLimitBurst=10
+StartLimitIntervalSec=300
+TimeoutStartSec=300
 
 [Install]
 WantedBy=multi-user.target
 EOF
+
+  # ZimaOS: /DATA may appear late — cron kicks the service after boot
+  cat > /etc/cron.d/boxarr-torbox-mount <<EOF
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+@reboot root sleep 90 && systemctl start boxarr-torbox-mount.service
+EOF
+  chmod 644 /etc/cron.d/boxarr-torbox-mount
+
   systemctl daemon-reload
-  systemctl enable boxarr-torbox-mount.service >/dev/null 2>&1 || true
+  systemctl enable boxarr-torbox-mount.service
   echo host > "${RCLONE_APPDATA}/mount-mode"
 }
 
