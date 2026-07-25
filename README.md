@@ -146,6 +146,14 @@ curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/boxarr-zimaos/scr
 
 Boxarr searches with Usenet indexer IDs. The torrent proxy fixes this — Boxarr Prowlarr URL must be `http://boxarr-prowlarr-proxy:9697`.
 
+### “All indexer proxies are unavailable due to failures”
+
+This is **Prowlarr → Settings → Indexer Proxies** (FlareSolverr, etc.) — **not** `boxarr-prowlarr-proxy`.
+
+For TPB/simple indexers: delete the FlareSolverr entry in **Indexer Proxies**. You don’t need it.
+
+Full guide: **[docs/prowlarr-troubleshooting.md](docs/prowlarr-troubleshooting.md)**
+
 ## Host paths
 
 | Path | Contents |

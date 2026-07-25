@@ -84,12 +84,17 @@ if [[ -f /DATA/AppData/boxarr-stack/docker-compose.yml ]]; then
 fi
 echo
 
-echo "=== prowlarr torrent proxy ==="
+echo "=== prowlarr torrent proxy (for Boxarr — NOT Indexer Proxies in Prowlarr UI) ==="
 if docker ps --format '{{.Names}}' | grep -qx boxarr-prowlarr-proxy; then
-  echo "OK  boxarr-prowlarr-proxy"
+  echo "OK  boxarr-prowlarr-proxy (Boxarr should use http://boxarr-prowlarr-proxy:9697)"
 else
   echo "MISS boxarr-prowlarr-proxy (Boxarr needs this for torrent-only Prowlarr)"
 fi
+echo
+echo "=== note: Prowlarr 'Indexer Proxies' health warning ==="
+echo "If System shows 'All indexer proxies are unavailable' — that's FlareSolverr etc."
+echo "in Prowlarr Settings → Indexer Proxies. Delete it if you only use TPB."
+echo "See: docs/prowlarr-troubleshooting.md"
 echo
 
 echo "=== failed torrent submits ==="
