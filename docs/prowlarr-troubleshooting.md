@@ -15,7 +15,15 @@ The health warning **“All indexer proxies are unavailable due to failures”**
 
 Prowlarr added an **Indexer Proxy** (usually **FlareSolverr**) that is failing its health check.
 
-### Fix A — you use TPB / simple indexers (most common)
+## Fix A — reinstall stack FlareSolverr (recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/boxarr-zimaos/scripts/install-flaresolverr.sh | sudo bash
+```
+
+This adds `flaresolverr` to compose (if missing), starts the container, and registers it in Prowlarr with tag `flaresolverr`.
+
+### Fix B — you use TPB / simple indexers only
 
 You usually **do not need** FlareSolverr for The Pirate Bay.
 
