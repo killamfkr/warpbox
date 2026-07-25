@@ -77,8 +77,27 @@ if [[ -f /DATA/AppData/boxarr-stack/docker-compose.yml ]]; then
 fi
 echo
 
+echo "=== prowlarr torrent proxy ==="
+if docker ps --format '{{.Names}}' | grep -qx boxarr-prowlarr-proxy; then
+  echo "OK  boxarr-prowlarr-proxy"
+else
+  echo "MISS boxarr-prowlarr-proxy (Boxarr needs this for torrent-only Prowlarr)"
+fi
+echo
+
+echo "=== failed torrent submits ==="
+if [[ -f /DATA/AppData/boxarr/boxarr.db ]]; then
+  sqlite3 /DATA/AppData/boxarr/boxarr.db \
+    "SELECT COUNT(*) FROM jobs WHERE protocol='torrent' AND state='failed';" 2>/dev/null \
+    | xargs -I{} echo "failed torrent jobs: {}"
+  sqlite3 /DATA/AppData/boxarr/boxarr.db \
+    "SELECT substr(fail_message,1,100) FROM jobs WHERE protocol='torrent' AND state='failed' ORDER BY id DESC LIMIT 1;" 2>/dev/null \
+    | sed 's/^/last error: /' || true
+fi
+echo
+
 echo "=== recent logs ==="
-for c in boxarr boxarr-rclone boxarr-prowlarr boxarr-seerr; do
+for c in boxarr boxarr-prowlarr-proxy boxarr-rclone boxarr-prowlarr boxarr-seerr; do
   if docker ps -a --format '{{.Names}}' | grep -qx "$c"; then
     echo "--- $c ---"
     docker logs "$c" --tail 8 2>&1
