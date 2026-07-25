@@ -10,7 +10,7 @@
 #   - TorBox host rclone mount (ZimaOS-safe; no Docker FUSE)
 #   - Prowlarr torrent proxy (fixes Boxarr usenet-only search bug)
 #   - FlareSolverr (Prowlarr indexer proxy for Cloudflare indexers)
-#   - systemd boxarr-torbox-mount.service (rclone starts on boot)
+#   - systemd boxarr-torbox-mount.service (rclone starts on boot, waits for /DATA)
 #
 # REQUIREMENTS: SSH as root, Developer Mode, TorBox + TMDB API keys
 #
@@ -247,12 +247,15 @@ done
 docker ps -a --format '{{.Names}}' | grep -E '^boxarr-prowlarr-proxy' | xargs -r docker rm -f 2>/dev/null || true
 
 # --- host TorBox mount (systemd — starts on boot) ---
-say "Mounting TorBox on host (rclone + systemd)"
+say "Mounting TorBox on host (rclone + systemd boot service)"
 LIB="${SCRIPT_DIR}/lib-rclone-mount.sh"
 if [[ ! -f "${LIB}" ]]; then
   curl -fsSL "${RAW_BASE}/lib-rclone-mount.sh" -o /tmp/lib-rclone-mount.sh
   LIB="/tmp/lib-rclone-mount.sh"
 fi
+curl -fsSL "${RAW_BASE}/boxarr-torbox-mount-start.sh" -o "${RCLONE_CFG}/boxarr-torbox-mount-start.sh"
+chmod +x "${RCLONE_CFG}/boxarr-torbox-mount-start.sh"
+export BOXARR_ZIMAOS_RAW="${RAW_BASE}"
 # shellcheck disable=SC1091
 . "${LIB}"
 export TORBOX_MOUNT="${TORBOX_MOUNT}" RCLONE_APPDATA="${RCLONE_CFG}" BOXARR_PUID="${PUID}" BOXARR_PGID="${PGID}"
@@ -266,10 +269,11 @@ if ! rclone_mount_bin; then
 fi
 
 if ! rclone_mount_enable_boot; then
-  die "TorBox mount failed — see ${RCLONE_CFG}/mount.log and run scripts/enable-rclone-startup.sh"
+  die "TorBox mount failed — see ${RCLONE_CFG}/mount.log and run enable-rclone-startup.sh"
 fi
 ok "TorBox mounted at ${TORBOX_MOUNT}"
 ok "boxarr-torbox-mount.service enabled=$(systemctl is-enabled boxarr-torbox-mount.service 2>/dev/null || echo unknown)"
+[[ -f /etc/cron.d/boxarr-torbox-mount ]] && ok "cron @reboot fallback installed (90s delay for ZimaOS /DATA)"
 
 # --- start prowlarr, get key ---
 say "Starting Prowlarr"
@@ -374,8 +378,10 @@ echo "  1. Prowlarr http://${IP}:9696 — add indexers (TPB; tag flaresolverr fo
 echo "  2. Boxarr http://${IP}:8181 — Settings → TorBox: paste API key if empty"
 echo "  3. Seerr http://${IP}:5055 — see docs/seerr-setup.md (Sonarr + Radarr → Boxarr)"
 echo
-echo "After reboot, TorBox remounts automatically (systemd boxarr-torbox-mount)."
-echo "  FlareSolverr + stack: cd ${INSTALL_DIR} && docker compose up -d"
+echo "After reboot, TorBox remounts automatically:"
+echo "  sudo systemctl status boxarr-torbox-mount   # + cron retry after 90s on ZimaOS"
+echo "  ls ${TORBOX_MOUNT}"
+echo "  cd ${INSTALL_DIR} && docker compose up -d"
 echo
 echo "Docs: https://github.com/killamfkr/warpbox/tree/boxarr-zimaos"
 echo

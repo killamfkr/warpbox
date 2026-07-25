@@ -77,18 +77,26 @@ Set default quality profile + root folder on each, then click **Test**.
 
 | What | How |
 |------|-----|
-| TorBox mount | `systemd` → `boxarr-torbox-mount.service` (enabled on install) |
-| Docker stack | CasaOS / manual `docker compose up -d` in `/DATA/AppData/boxarr-stack` |
+| TorBox mount | `systemd` → `boxarr-torbox-mount.service` |
+| ZimaOS /DATA delay | Start script waits up to 3 min for `rclone.conf` |
+| Cron fallback | `/etc/cron.d/boxarr-torbox-mount` retries 90s after reboot |
+| Docker stack | `docker compose up -d` in `/DATA/AppData/boxarr-stack` |
 
-After reboot:
+`install.sh` and `enable-rclone-startup.sh` both install:
+
+- `/DATA/AppData/boxarr-rclone/boxarr-torbox-mount-start.sh` — boot wrapper
+- `/etc/systemd/system/boxarr-torbox-mount.service` — enabled on boot
+- `/etc/cron.d/boxarr-torbox-mount` — ZimaOS safety net
+
+After reboot (wait ~2 minutes for /DATA + cron):
 
 ```bash
-sudo systemctl status boxarr-torbox-mount    # should be active
-ls /DATA/Media/torbox                        # should list TorBox folders
+sudo systemctl status boxarr-torbox-mount
+ls /DATA/Media/torbox
 cd /DATA/AppData/boxarr-stack && sudo docker compose up -d
 ```
 
-Re-enable mount only (if `systemctl` says *not found*):
+Re-apply boot setup on an existing install:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/boxarr-zimaos/scripts/enable-rclone-startup.sh -o /tmp/enable-rclone-startup.sh

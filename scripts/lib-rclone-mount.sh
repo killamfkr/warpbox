@@ -107,15 +107,18 @@ rclone_mount_write_systemd_unit() {
   local fm="${FUSERMOUNT_BIN:-/usr/bin/fusermount}"
   local start_script="${RCLONE_APPDATA}/boxarr-torbox-mount-start.sh"
   local repo_start="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)/boxarr-torbox-mount-start.sh"
+  local raw_base="${BOXARR_ZIMAOS_RAW:-https://raw.githubusercontent.com/killamfkr/warpbox/boxarr-zimaos/scripts}"
 
-  if [[ -f "${repo_start}" ]]; then
+  if [[ -x "${start_script}" ]]; then
+    : # already installed (e.g. by install.sh)
+  elif [[ -f "${repo_start}" ]]; then
     cp -a "${repo_start}" "${start_script}"
+    chmod +x "${start_script}"
   else
-    # Inline minimal copy when sourced from /tmp
-    curl -fsSL "${BOXARR_ZIMAOS_RAW:-https://raw.githubusercontent.com/killamfkr/warpbox/boxarr-zimaos/scripts}/boxarr-torbox-mount-start.sh" \
-      -o "${start_script}" 2>/dev/null || true
+    curl -fsSL "${raw_base}/boxarr-torbox-mount-start.sh" -o "${start_script}"
+    chmod +x "${start_script}" 2>/dev/null || true
   fi
-  chmod +x "${start_script}" 2>/dev/null || true
+  [[ -x "${start_script}" ]] || return 1
 
   cat > "${unit}" <<EOF
 [Unit]

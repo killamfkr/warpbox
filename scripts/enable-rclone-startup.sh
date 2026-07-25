@@ -22,10 +22,14 @@ if [[ ! -f "${LIB}" ]]; then
 fi
 # shellcheck source=/dev/null
 . "${LIB}"
+export BOXARR_ZIMAOS_RAW="${RAW_BASE}"
 
 rclone_mount_paths
 say "TorBox mount: ${TORBOX_MOUNT}"
 say "rclone config: ${RCLONE_APPDATA}/rclone.conf"
+
+curl -fsSL "${RAW_BASE}/boxarr-torbox-mount-start.sh" -o "${RCLONE_APPDATA}/boxarr-torbox-mount-start.sh"
+chmod +x "${RCLONE_APPDATA}/boxarr-torbox-mount-start.sh"
 
 [[ -f "${RCLONE_APPDATA}/rclone.conf" ]] || die "missing ${RCLONE_APPDATA}/rclone.conf — run install.sh first"
 
