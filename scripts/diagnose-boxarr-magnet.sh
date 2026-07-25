@@ -43,8 +43,13 @@ LIMIT 5;
 " 2>/dev/null || echo "sqlite query failed"
 echo
 
-echo "=== TorBox API key configured? ==="
-sqlite3 "${DB}" "SELECT key, CASE WHEN length(value)>4 THEN substr(value,1,4)||'...' ELSE '(empty)' END FROM settings WHERE key LIKE 'torbox%';" 2>/dev/null || true
+echo "=== TorBox API key / cooldown cache ==="
+sqlite3 "${DB}" "SELECT key, CASE WHEN length(value)>4 THEN substr(value,1,4)||'...' ELSE value END FROM settings WHERE key LIKE 'torbox%';" 2>/dev/null || true
+CACHED_CD="$(sqlite3 "${DB}" "SELECT value FROM settings WHERE key='torbox.cooldown_until' LIMIT 1;" 2>/dev/null || true)"
+if [[ -n "${CACHED_CD}" ]]; then
+  echo "WARN boxarr cached cooldown_until=${CACHED_CD}"
+  echo "     If torbox.app shows no cooldown, clear with: clear-boxarr-cooldown.sh"
+fi
 echo
 
 echo "=== Prowlarr proxy running? ==="
