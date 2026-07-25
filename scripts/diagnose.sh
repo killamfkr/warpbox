@@ -117,6 +117,11 @@ if [[ -f /DATA/AppData/boxarr/boxarr.db ]]; then
     echo "WARN boxarr throttle: cooldown_until=${CACHED_CD:-none} daily_cap=${DAILY_CAP:-0}"
     echo "      If torbox.app shows no cooldown but UI still paused: clear-boxarr-pause.sh"
   fi
+  MAG_FAILS="$(sqlite3 /DATA/AppData/boxarr/boxarr.db \
+    "SELECT COUNT(*) FROM jobs WHERE protocol='torrent' AND state='failed' AND fail_message LIKE '%magnet%';" 2>/dev/null || echo 0)"
+  if [[ "${MAG_FAILS}" != "0" ]]; then
+    echo "WARN invalid magnet failures: ${MAG_FAILS} — run diagnose-boxarr-magnet.sh"
+  fi
 fi
 echo
 

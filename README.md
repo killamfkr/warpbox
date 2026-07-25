@@ -118,6 +118,7 @@ All scripts live in [`scripts/`](scripts/). Run as root on ZimaOS.
 | [`clear-boxarr-cooldown.sh`](scripts/clear-boxarr-cooldown.sh) | Alias for `clear-boxarr-pause.sh` |
 | [`show-seerr-key.sh`](scripts/show-seerr-key.sh) | Print Seerr API key + connection cheat sheet |
 | [`test-torbox-submit.sh`](scripts/test-torbox-submit.sh) | Test TorBox API magnet submit |
+| [`diagnose-boxarr-magnet.sh`](scripts/diagnose-boxarr-magnet.sh) | Diagnose TorBox invalid magnet errors |
 | [`install-prowlarr-proxy.sh`](scripts/install-prowlarr-proxy.sh) | Reinstall Prowlarr torrent proxy |
 | [`install-flaresolverr.sh`](scripts/install-flaresolverr.sh) | Start FlareSolverr + configure Prowlarr (docker run) |
 | [`repair-compose.sh`](scripts/repair-compose.sh) | Restore or regenerate broken docker-compose.yml |
@@ -161,13 +162,29 @@ Then hard-refresh Boxarr in your browser. If grabs still fail, test TorBox direc
 curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/boxarr-zimaos/scripts/test-torbox-submit.sh | sudo bash
 ```
 
-### Invalid Magnet Link
+### Invalid Magnet Link (TorBox rejects magnet)
 
-Use TPB indexers, not YTS. Reinstall the Prowlarr proxy:
+TorBox returns *"Your torrent could not be added because the magnet link is invalid"* when the indexer sends a bad magnet — **YTS is the usual culprit**. TPB works reliably.
+
+**1. Diagnose:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/boxarr-zimaos/scripts/install-prowlarr-proxy.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/boxarr-zimaos/scripts/diagnose-boxarr-magnet.sh -o /tmp/diagnose-boxarr-magnet.sh
+sudo bash /tmp/diagnose-boxarr-magnet.sh
 ```
+
+**2. Reinstall the magnet-sanitizing proxy** (strips YTS magnets, rebuilds valid btih hashes):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/boxarr-zimaos/scripts/install-prowlarr-proxy.sh -o /tmp/install-prowlarr-proxy.sh
+sudo bash /tmp/install-prowlarr-proxy.sh
+```
+
+**3. In Boxarr → Settings → Prowlarr**, set URL to `http://boxarr-prowlarr-proxy:9697` and save.
+
+**4. In Prowlarr → Indexers:** enable **The Pirate Bay**, disable **YTS/YIFY**.
+
+**5. Retry the grab** — pick a **TPB** release, not YTS.
 
 ### Prowlarr search returns HTTP 400
 

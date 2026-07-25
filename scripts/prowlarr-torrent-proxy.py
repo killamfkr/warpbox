@@ -6,10 +6,9 @@ when no Usenet indexers exist. This proxy rewrites those searches to use
 indexerIds=-2 (all torrent indexers) instead.
 
 It also sanitizes torrent search results so Boxarr does not submit broken magnet
-links to TorBox (which returns HTTP 400 "Invalid Magnet Link"). When a release
-has a bad magnet but a downloadUrl or infoHash, the proxy clears the bad magnet
-or rebuilds a proper magnet:?xt=urn:btih:… URI so Boxarr can fall back to
-fetching the .torrent file when needed.
+links to TorBox (which returns HTTP 400 "Invalid Magnet Link"). YTS/YIFY magnets
+often look well-formed but TorBox rejects them — for those indexers we strip
+magnetUrl so Boxarr fetches the .torrent via downloadUrl or rebuilds from infoHash.
 
 Usage:
   PROWLARR_UPSTREAM=http://127.0.0.1:9696 python3 prowlarr-torrent-proxy.py
@@ -18,6 +17,8 @@ Usage:
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import os
 import re
@@ -30,7 +31,24 @@ UPSTREAM = os.environ.get("PROWLARR_UPSTREAM", "http://127.0.0.1:9696").rstrip("
 LISTEN_HOST = os.environ.get("PROWLARR_PROXY_HOST", "0.0.0.0")
 LISTEN_PORT = int(os.environ.get("PROWLARR_PROXY_PORT", "9697"))
 
-_INFO_HASH_RE = re.compile(r"^[a-f0-9]{40}$", re.IGNORECASE)
+# Indexers whose magnetUrl values are frequently rejected by TorBox even when
+# they parse as valid magnets. Stripping magnetUrl forces Boxarr to use
+# downloadUrl (.torrent) or a rebuilt magnet from infoHash instead.
+_STRIP_MAGNET_INDEXERS = tuple(
+    s.strip().lower()
+    for s in os.environ.get(
+        "STRIP_MAGNET_INDEXERS",
+        "yts,yify,limetorrents,eztv",
+    ).split(",")
+    if s.strip()
+)
+
+_HEX_HASH_RE = re.compile(r"^[a-f0-9]{40}$", re.IGNORECASE)
+_B32_HASH_RE = re.compile(r"^[a-z2-7]{32}$", re.IGNORECASE)
+_BTIH_RE = re.compile(
+    r"xt=urn:btih:([a-f0-9]{40}|[a-z2-7]{32})",
+    re.IGNORECASE,
+)
 
 
 def rewrite_search_path(path: str) -> str:
@@ -49,23 +67,57 @@ def is_search_path(path: str) -> bool:
     return urllib.parse.urlparse(path).path.endswith("/api/v1/search")
 
 
+def normalize_info_hash(raw: str) -> str:
+    """Return a lowercase 40-char hex infohash, or '' if invalid."""
+    h = (raw or "").strip()
+    if not h:
+        return ""
+    if _HEX_HASH_RE.fullmatch(h):
+        return h.lower()
+    if _B32_HASH_RE.fullmatch(h):
+        try:
+            pad = "=" * ((8 - len(h) % 8) % 8)
+            digest = base64.b32decode(h.upper() + pad)
+            return binascii.hexlify(digest).decode("ascii")
+        except (binascii.Error, ValueError):
+            return ""
+    return ""
+
+
+def extract_magnet_hash(magnet: str) -> str:
+    m = _BTIH_RE.search(magnet or "")
+    if not m:
+        return ""
+    return normalize_info_hash(m.group(1))
+
+
 def valid_magnet(url: str) -> bool:
-    """TorBox expects a real magnet URI with a btih (or btmh) xt param."""
+    """TorBox expects a real magnet URI with a valid btih hash."""
     u = (url or "").strip()
     if not u.lower().startswith("magnet:?"):
         return False
-    lower = u.lower()
-    return "xt=urn:btih:" in lower or "xt=urn:btmh:" in lower
+    return bool(extract_magnet_hash(u))
 
 
 def build_magnet(info_hash: str, title: str = "") -> str:
-    h = (info_hash or "").strip().lower()
-    if not _INFO_HASH_RE.fullmatch(h):
+    h = normalize_info_hash(info_hash)
+    if not h:
         return ""
     magnet = f"magnet:?xt=urn:btih:{h}"
     if title:
         magnet += "&dn=" + urllib.parse.quote(title)
     return magnet
+
+
+def indexer_name(item: dict) -> str:
+    return (item.get("indexer") or "").strip().lower()
+
+
+def should_strip_magnet(item: dict) -> bool:
+    name = indexer_name(item)
+    if not name:
+        return False
+    return any(token in name for token in _STRIP_MAGNET_INDEXERS)
 
 
 def sanitize_release(item: dict) -> bool:
@@ -77,25 +129,33 @@ def sanitize_release(item: dict) -> bool:
 
     magnet = (item.get("magnetUrl") or "").strip()
     download = (item.get("downloadUrl") or "").strip()
-    info_hash = (item.get("infoHash") or "").strip()
+    info_hash = normalize_info_hash(item.get("infoHash") or "")
     title = (item.get("title") or "").strip()
+    strip_indexer = should_strip_magnet(item)
     changed = False
+
+    if info_hash and normalize_info_hash(item.get("infoHash") or "") != (item.get("infoHash") or "").strip().lower():
+        item["infoHash"] = info_hash
+        changed = True
 
     if magnet and not valid_magnet(magnet):
         item["magnetUrl"] = ""
         changed = True
         magnet = ""
 
-    if not magnet and info_hash:
-        rebuilt = build_magnet(info_hash, title)
-        if rebuilt:
-            item["magnetUrl"] = rebuilt
+    if magnet:
+        magnet_hash = extract_magnet_hash(magnet)
+        if info_hash and magnet_hash and magnet_hash != info_hash:
+            item["magnetUrl"] = ""
             changed = True
-            magnet = rebuilt
+            magnet = ""
+        elif strip_indexer:
+            # TorBox often rejects YTS-style magnets; Boxarr should use downloadUrl.
+            item["magnetUrl"] = ""
+            changed = True
+            magnet = ""
 
-    # If magnet is still empty but we have a Prowlarr download URL, leave
-    # magnetUrl empty so Boxarr fetches the .torrent via downloadUrl.
-    if not magnet and not download and info_hash:
+    if not magnet and info_hash and not download and not strip_indexer:
         rebuilt = build_magnet(info_hash, title)
         if rebuilt:
             item["magnetUrl"] = rebuilt
