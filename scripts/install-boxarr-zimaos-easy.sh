@@ -25,6 +25,7 @@ set -euo pipefail
 SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
 
 say()  { echo "==> $*"; }
+ok()   { echo "OK:  $*"; }
 die()  { echo "ERROR: $*" >&2; exit 1; }
 warn() { echo "WARN:  $*" >&2; }
 
