@@ -12,15 +12,10 @@ say() { echo "==> $*"; }
 
 [[ "${EUID:-$(id -u)}" -eq 0 ]] || exec sudo -E bash "$0" "$@"
 
-TORBOX_MOUNT="/DATA/Media/torbox"
-RCLONE_APPDATA="/DATA/AppData/boxarr-rclone"
-PUID="${BOXARR_PUID:-1000}"
-PGID="${BOXARR_PGID:-1000}"
-
-if [[ -d /media/Storage ]] && [[ ! -d /DATA ]]; then
-  TORBOX_MOUNT="/media/Storage/Media/torbox"
-  RCLONE_APPDATA="/media/Storage/AppData/boxarr-rclone"
-fi
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib-rclone-mount.sh
+. "${SCRIPT_DIR}/lib-rclone-mount.sh"
+rclone_mount_paths
 
 [[ -f "${RCLONE_APPDATA}/rclone.conf" ]] || die "missing ${RCLONE_APPDATA}/rclone.conf"
 
@@ -32,34 +27,21 @@ chown -R "${PUID}:${PGID}" "${RCLONE_APPDATA}" "${TORBOX_MOUNT}"
 
 # Stop compose rclone — host mount replaces it
 docker rm -f boxarr-rclone 2>/dev/null || true
-fusermount -uz "${TORBOX_MOUNT}" 2>/dev/null || umount -l "${TORBOX_MOUNT}" 2>/dev/null || true
+rclone_mount_unmount
 
 install_rclone() {
-  if command -v rclone >/dev/null 2>&1; then
+  if rclone_mount_bin; then
     return 0
   fi
   say "Installing rclone on host"
   curl -fsSL https://rclone.org/install.sh | bash
-  command -v rclone >/dev/null 2>&1 || die "rclone install failed"
+  rclone_mount_bin || die "rclone install failed"
 }
 
 mount_with_host_rclone() {
   say "Mounting TorBox on host with rclone (most reliable on ZimaOS)"
   install_rclone
-  rclone mount "torbox:" "${TORBOX_MOUNT}" \
-    --config "${RCLONE_APPDATA}/rclone.conf" \
-    --allow-other \
-    --allow-non-empty \
-    --dir-cache-time 1h \
-    --vfs-cache-mode full \
-    --vfs-cache-max-size 50G \
-    --cache-dir "${RCLONE_APPDATA}/cache" \
-    --uid "${PUID}" \
-    --gid "${PGID}" \
-    --umask 002 \
-    --log-file "${RCLONE_APPDATA}/mount.log" \
-    --log-level INFO \
-    --daemon
+  rclone_mount_start_daemon
 }
 
 mount_with_docker() {
@@ -90,55 +72,20 @@ mount_with_docker() {
 }
 
 wait_for_mount() {
-  for _ in $(seq 1 30); do
-    sample="$(ls -A "${TORBOX_MOUNT}" 2>/dev/null | head -3 | tr '\n' ' ' || true)"
-    if [[ -n "${sample}" ]]; then
-      ok "TorBox mounted at ${TORBOX_MOUNT}: ${sample}"
-      return 0
-    fi
-    sleep 2
-  done
-  return 1
+  rclone_mount_wait_nonempty 30
 }
 
 install_systemd_service() {
-  local unit="/etc/systemd/system/boxarr-torbox-mount.service"
   say "Installing systemd service for boot persistence"
-  cat > "${unit}" <<EOF
-[Unit]
-Description=TorBox rclone mount for Boxarr
-After=network-online.target docker.service
-Wants=network-online.target
-
-[Service]
-Type=forking
-User=root
-ExecStartPre=-/usr/bin/fusermount -uz ${TORBOX_MOUNT}
-ExecStartPre=-/usr/bin/docker rm -f boxarr-rclone
-ExecStart=/usr/bin/rclone mount torbox: ${TORBOX_MOUNT} \\
-  --config ${RCLONE_APPDATA}/rclone.conf \\
-  --allow-other --allow-non-empty \\
-  --dir-cache-time 1h --vfs-cache-mode full --vfs-cache-max-size 50G \\
-  --cache-dir ${RCLONE_APPDATA}/cache \\
-  --uid ${PUID} --gid ${PGID} --umask 002 \\
-  --log-file ${RCLONE_APPDATA}/mount.log --log-level INFO \\
-  --daemon
-ExecStop=-/usr/bin/fusermount -uz ${TORBOX_MOUNT}
-Restart=on-failure
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-EOF
-  systemctl daemon-reload
-  systemctl enable boxarr-torbox-mount.service
+  rclone_mount_write_systemd_unit
   ok "enabled boxarr-torbox-mount.service (starts on boot)"
 }
 
 # Prefer host rclone — Docker FUSE propagation is unreliable on ZimaOS
 if mount_with_host_rclone && wait_for_mount; then
-  echo host > "${RCLONE_APPDATA}/mount-mode"
   install_systemd_service
+  sample="$(ls -A "${TORBOX_MOUNT}" 2>/dev/null | head -3 | tr '\n' ' ')"
+  ok "TorBox mounted at ${TORBOX_MOUNT}: ${sample}"
   echo
   echo "Next: cd /DATA/AppData/boxarr-stack && docker compose up -d boxarr boxarr-prowlarr boxarr-seerr"
   exit 0

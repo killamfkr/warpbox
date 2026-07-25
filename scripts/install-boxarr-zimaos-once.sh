@@ -21,7 +21,7 @@
 set -euo pipefail
 
 SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
-RAW_BASE="https://raw.githubusercontent.com/killamfkr/warpbox/cursor/casaos-install-script-1b99/scripts"
+RAW_BASE="https://raw.githubusercontent.com/killamfkr/warpbox/cursor/fix-invalid-magnet-proxy-1b99/scripts"
 
 say()  { echo "==> $*"; }
 ok()   { echo "OK:  $*"; }
@@ -223,64 +223,30 @@ for c in boxarr boxarr-rclone boxarr-prowlarr boxarr-seerr boxarr-prowlarr-proxy
 done
 docker ps -a --format '{{.Names}}' | grep -E '^boxarr-prowlarr-proxy' | xargs -r docker rm -f 2>/dev/null || true
 
-# --- host TorBox mount ---
-say "Mounting TorBox on host (rclone)"
-docker rm -f boxarr-rclone 2>/dev/null || true
-fusermount -uz "${TORBOX_MOUNT}" 2>/dev/null || umount -l "${TORBOX_MOUNT}" 2>/dev/null || true
+# --- host TorBox mount (systemd — starts on boot) ---
+say "Mounting TorBox on host (rclone + systemd)"
+LIB="${SCRIPT_DIR}/lib-rclone-mount.sh"
+if [[ ! -f "${LIB}" ]]; then
+  curl -fsSL "${RAW_BASE}/lib-rclone-mount.sh" -o /tmp/lib-rclone-mount.sh
+  LIB="/tmp/lib-rclone-mount.sh"
+fi
+# shellcheck disable=SC1091
+. "${LIB}"
+export TORBOX_MOUNT="${TORBOX_MOUNT}" RCLONE_APPDATA="${RCLONE_CFG}" BOXARR_PUID="${PUID}" BOXARR_PGID="${PGID}"
+rclone_mount_paths
 
-if ! command -v rclone >/dev/null 2>&1; then
+docker rm -f boxarr-rclone 2>/dev/null || true
+if ! rclone_mount_bin; then
   say "Installing rclone on host"
   curl -fsSL https://rclone.org/install.sh | bash
+  rclone_mount_bin || die "rclone install failed"
 fi
 
-rclone mount "torbox:" "${TORBOX_MOUNT}" \
-  --config "${RCLONE_CFG}/rclone.conf" \
-  --allow-other --allow-non-empty \
-  --dir-cache-time 1h --vfs-cache-mode full --vfs-cache-max-size 50G \
-  --cache-dir "${RCLONE_CFG}/cache" \
-  --uid "${PUID}" --gid "${PGID}" --umask 002 \
-  --log-file "${RCLONE_CFG}/mount.log" --log-level INFO --daemon
-
-mounted=0
-for _ in $(seq 1 30); do
-  if [[ -n "$(ls -A "${TORBOX_MOUNT}" 2>/dev/null)" ]]; then
-    mounted=1
-    ok "TorBox mounted at ${TORBOX_MOUNT}"
-    break
-  fi
-  sleep 2
-done
-[[ "${mounted}" -eq 1 ]] || die "TorBox mount empty — see ${RCLONE_CFG}/mount.log"
-
-# systemd for boot
-cat > /etc/systemd/system/boxarr-torbox-mount.service <<EOF
-[Unit]
-Description=TorBox rclone mount for Boxarr
-After=network-online.target docker.service
-Wants=network-online.target
-
-[Service]
-Type=forking
-User=root
-ExecStartPre=-/usr/bin/fusermount -uz ${TORBOX_MOUNT}
-ExecStartPre=-/usr/bin/docker rm -f boxarr-rclone
-ExecStart=/usr/bin/rclone mount torbox: ${TORBOX_MOUNT} \\
-  --config ${RCLONE_CFG}/rclone.conf \\
-  --allow-other --allow-non-empty \\
-  --dir-cache-time 1h --vfs-cache-mode full --vfs-cache-max-size 50G \\
-  --cache-dir ${RCLONE_CFG}/cache \\
-  --uid ${PUID} --gid ${PGID} --umask 002 \\
-  --log-file ${RCLONE_CFG}/mount.log --log-level INFO --daemon
-ExecStop=-/usr/bin/fusermount -uz ${TORBOX_MOUNT}
-Restart=on-failure
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-EOF
-systemctl daemon-reload
-systemctl enable boxarr-torbox-mount.service >/dev/null
-ok "enabled boxarr-torbox-mount.service"
+if ! rclone_mount_enable_boot; then
+  die "TorBox mount failed — see ${RCLONE_CFG}/mount.log and run enable-rclone-startup.sh"
+fi
+ok "TorBox mounted at ${TORBOX_MOUNT}"
+ok "boxarr-torbox-mount.service enabled=$(systemctl is-enabled boxarr-torbox-mount.service 2>/dev/null || echo unknown)"
 
 # --- start prowlarr, get key ---
 say "Starting Prowlarr"
@@ -352,12 +318,26 @@ echo "  ${LIBRARY}  →  /mnt/library"
 echo "  ${TORBOX_MOUNT}  →  /mnt/torbox"
 echo
 echo "Boxarr Prowlarr URL (pre-configured): ${PROWLARR_PROXY_URL}"
-echo "Seerr API key: ${SEERR_KEY}"
+echo
+echo "── Seerr API key (use for BOTH Sonarr + Radarr in Seerr) ──"
+echo "  ${SEERR_KEY}"
+echo
+echo "  Get key later:  show-seerr-key.sh"
+echo "  Or Boxarr UI:   Settings → Requests → Generate"
+echo
+echo "── Seerr → Settings → Services ──"
+echo "  Option 1 (hostname / port / URL base):"
+echo "    Sonarr:  boxarr : 8080  base /sonarr"
+echo "    Radarr:  boxarr : 8080  base /radarr"
+echo "  Option 2 (full URL):"
+echo "    Sonarr:  http://boxarr:8080/sonarr"
+echo "    Radarr:  http://boxarr:8080/radarr"
+echo "  Docs: https://github.com/killamfkr/warpbox/tree/boxarr-zimaos/docs/seerr-setup.md"
 echo
 echo "Next steps:"
 echo "  1. Prowlarr http://${IP}:9696 — add YTS + TPB (torrent indexers)"
 echo "  2. Boxarr http://${IP}:8181 — Settings → TorBox: paste API key if empty"
-echo "  3. Seerr http://${IP}:5055 — add Sonarr+Radarr → http://boxarr:8080/sonarr and /radarr"
+echo "  3. Seerr http://${IP}:5055 — Sonarr+Radarr → Boxarr (see docs/seerr-setup.md on boxarr-zimaos branch)"
 echo
 
 [[ "${FAIL}" -eq 0 ]] || exit 1

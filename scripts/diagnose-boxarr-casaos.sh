@@ -5,7 +5,7 @@
 set -u
 
 if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
-  echo "ERROR: run as root — use: curl -fsSL .../diagnose-boxarr-casaos.sh | sudo bash" >&2
+  echo "ERROR: run as root — use: curl -fsSL .../diagnose.sh | sudo bash" >&2
   exit 1
 fi
 
@@ -52,11 +52,18 @@ echo "=== docker ps ==="
 docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' 2>&1 | grep -E 'boxarr|NAMES' || docker ps 2>&1
 echo
 
-echo "=== mount propagation ==="
+echo "=== TorBox rclone mount ==="
+if [[ -f /DATA/AppData/boxarr-rclone/mount-mode ]] && [[ "$(cat /DATA/AppData/boxarr-rclone/mount-mode 2>/dev/null)" == "host" ]]; then
+  echo "mode: host (systemd boxarr-torbox-mount)"
+  systemctl is-enabled boxarr-torbox-mount.service 2>/dev/null | sed 's/^/boot: /' || echo "boot: not enabled — run scripts/enable-rclone-startup.sh"
+  systemctl is-active boxarr-torbox-mount.service 2>/dev/null | sed 's/^/systemd: /' || echo "systemd: not installed"
+else
+  echo "mode: docker (boxarr-rclone container)"
+fi
 findmnt -T /DATA/Media/torbox 2>/dev/null || echo "findmnt unavailable"
 echo "host torbox entries: $(ls -A /DATA/Media/torbox 2>/dev/null | wc -l)"
 if docker ps --format '{{.Names}}' | grep -qx boxarr-rclone; then
-  echo "probe via alpine (should list TorBox folders if mount works):"
+  echo "probe via alpine (docker rclone — may be empty on ZimaOS):"
   docker run --rm -v /DATA/Media/torbox:/torbox:ro alpine ls /torbox 2>&1 | head -8 || true
 fi
 echo
@@ -77,8 +84,38 @@ if [[ -f /DATA/AppData/boxarr-stack/docker-compose.yml ]]; then
 fi
 echo
 
+echo "=== prowlarr torrent proxy (for Boxarr — NOT Indexer Proxies in Prowlarr UI) ==="
+if docker ps --format '{{.Names}}' | grep -qx boxarr-prowlarr-proxy; then
+  echo "OK  boxarr-prowlarr-proxy (Boxarr should use http://boxarr-prowlarr-proxy:9697)"
+else
+  echo "MISS boxarr-prowlarr-proxy (Boxarr needs this for torrent-only Prowlarr)"
+fi
+echo
+echo "=== note: Prowlarr 'Indexer Proxies' health warning ==="
+echo "If System shows 'All indexer proxies are unavailable' — that's FlareSolverr etc."
+echo "in Prowlarr Settings → Indexer Proxies. Delete it if you only use TPB."
+echo "See: docs/prowlarr-troubleshooting.md"
+echo
+
+echo "=== failed torrent submits ==="
+if [[ -f /DATA/AppData/boxarr/boxarr.db ]]; then
+  sqlite3 /DATA/AppData/boxarr/boxarr.db \
+    "SELECT COUNT(*) FROM jobs WHERE protocol='torrent' AND state='failed';" 2>/dev/null \
+    | xargs -I{} echo "failed torrent jobs: {}"
+  sqlite3 /DATA/AppData/boxarr/boxarr.db \
+    "SELECT substr(fail_message,1,100) FROM jobs WHERE protocol='torrent' AND state='failed' ORDER BY id DESC LIMIT 1;" 2>/dev/null \
+    | sed 's/^/last error: /' || true
+  CACHED_CD="$(sqlite3 /DATA/AppData/boxarr/boxarr.db \
+    "SELECT value FROM settings WHERE key='torbox.cooldown_until' LIMIT 1;" 2>/dev/null || true)"
+  if [[ -n "${CACHED_CD}" ]]; then
+    echo "WARN boxarr cached cooldown_until=${CACHED_CD}"
+    echo "      If torbox.app shows no cooldown: clear-boxarr-cooldown.sh"
+  fi
+fi
+echo
+
 echo "=== recent logs ==="
-for c in boxarr boxarr-rclone boxarr-prowlarr boxarr-seerr; do
+for c in boxarr boxarr-prowlarr-proxy boxarr-rclone boxarr-prowlarr boxarr-seerr; do
   if docker ps -a --format '{{.Names}}' | grep -qx "$c"; then
     echo "--- $c ---"
     docker logs "$c" --tail 8 2>&1
