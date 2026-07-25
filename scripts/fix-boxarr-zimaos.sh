@@ -205,7 +205,12 @@ fi
 ok "boxarr-rclone running — $(ls "${TORBOX_MOUNT}" | head -3 | tr '\n' ' ')..."
 
 say "Starting rest of stack"
-DC up -d
+if [[ -f "${RCLONE_APPDATA}/mount-mode" ]] && [[ "$(cat "${RCLONE_APPDATA}/mount-mode")" == "host" ]]; then
+  DC up -d boxarr boxarr-prowlarr boxarr-seerr 2>/dev/null || DC up -d boxarr boxarr-prowlarr
+  ok "started stack (rclone runs on host, not in compose)"
+else
+  DC up -d
+fi
 sleep 10
 
 # --- report ---

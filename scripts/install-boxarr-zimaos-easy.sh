@@ -3,6 +3,9 @@
 # Boxarr stack for ZimaOS — easy failsafe installer
 # =============================================================================
 #
+# For the full tested ZimaOS workflow (host mount + Prowlarr proxy), use:
+#   scripts/install-boxarr-zimaos-once.sh
+#
 # ZimaOS stores everything under /DATA (capital D).
 # There is NO /data on the host — only paths inside Docker containers.
 #
