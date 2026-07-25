@@ -127,10 +127,10 @@ chown -R "${PUID}:${PGID}" "${BOXARR_CFG}" "${RCLONE_CFG}" "${PROWLARR_CFG}" "${
 chown -R 1000:1000 "${SEERR_CFG}"   # Seerr always runs as uid 1000
 chmod -R u+rwX,g+rwX "${LIBRARY}" "${TORBOX_MOUNT}" "${RCLONE_CFG}" "${SEERR_CFG}"
 
-# host mount propagation — required so boxarr container sees rclone FUSE mount
+# host mount propagation — do NOT stack mount --bind (causes propagation loops on ZimaOS)
 say "Enabling mount propagation"
-for mp in "${TORBOX_MOUNT}" "${LIBRARY}"; do
-  mount --bind "${mp}" "${mp}" 2>/dev/null || true
+for mp in /DATA /DATA/Media "${TORBOX_MOUNT}" "${LIBRARY}"; do
+  [[ -d "${mp}" ]] || continue
   mount --make-rshared "${mp}" 2>/dev/null || warn "rshared failed on ${mp} (may still work)"
 done
 

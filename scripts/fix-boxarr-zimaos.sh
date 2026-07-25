@@ -66,9 +66,8 @@ ok "permissions set"
 
 # --- host mount propagation (critical on ZimaOS) ---
 say "Enabling mount propagation on host"
-for mp in "${TORBOX_MOUNT}" "${LIBRARY_ROOT}"; do
-  mkdir -p "${mp}"
-  mount --bind "${mp}" "${mp}" 2>/dev/null || true
+for mp in /DATA /DATA/Media "${TORBOX_MOUNT}" "${LIBRARY_ROOT}"; do
+  [[ -d "${mp}" ]] || continue
   mount --make-rshared "${mp}" 2>/dev/null || warn "could not make-rshared ${mp}"
 done
 ok "host mounts prepared"
@@ -111,18 +110,41 @@ if [[ -f "${RCLONE_APPDATA}/rclone.conf" ]]; then
   ok "TorBox WebDAV reachable"
 fi
 
-# --- fix compose: broken command or missing bind propagation ---
+# --- fix compose: patch propagation in-place ---
 COMPOSE="${INSTALL_DIR}/docker-compose.yml"
-needs_regen=0
 if grep -q 'command: >' "${COMPOSE}" 2>/dev/null; then
-  warn "compose has broken 'command: >' — re-run install-boxarr-zimaos-easy.sh to regenerate"
-  needs_regen=1
+  die "compose has broken 'command: >' — re-run install-boxarr-zimaos-easy.sh"
 fi
 if ! grep -q 'propagation: rshared' "${COMPOSE}" 2>/dev/null; then
-  warn "compose missing rshared propagation on rclone mount — re-run install-boxarr-zimaos-easy.sh"
-  needs_regen=1
+  say "Patching compose for mount propagation (rshared/rslave)"
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  if [[ -x "${SCRIPT_DIR}/patch-boxarr-compose.sh" ]]; then
+    bash "${SCRIPT_DIR}/patch-boxarr-compose.sh" "${COMPOSE}" "${TORBOX_MOUNT}"
+  else
+    # inline patch when run via curl pipe
+    cp -a "${COMPOSE}" "${COMPOSE}.bak.$(date +%s)"
+    python3 - "${COMPOSE}" "${TORBOX_MOUNT}" <<'PY'
+import re, sys
+from pathlib import Path
+path, torbox = Path(sys.argv[1]), sys.argv[2]
+text = path.read_text()
+def bind_block(src, tgt, prop):
+    return (f"      - type: bind\n        source: {src}\n        target: {tgt}\n"
+            f"        bind:\n          propagation: {prop}\n")
+def sub_vol(text, host, ctr, prop):
+    pat = rf'      - {re.escape(host)}:{re.escape(ctr)}\n'
+    return re.sub(pat, bind_block(host, ctr, prop), text, count=1) if re.search(pat, text) else text
+text = sub_vol(text, torbox, "/data", "rshared")
+text = sub_vol(text, torbox, "/mnt/torbox", "rslave")
+path.write_text(text)
+print(f"patched {path}")
+PY
+  fi
+  DC config >/dev/null || die "patched compose is invalid — restore from ${COMPOSE}.bak.*"
+  ok "compose patched"
+else
+  ok "compose already has propagation"
 fi
-[[ "${needs_regen}" -eq 1 ]] && warn "Continuing with current compose; mount may stay empty without propagation fix"
 
 # --- restart in order ---
 say "Stopping stack"
