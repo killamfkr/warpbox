@@ -9,6 +9,7 @@ set -euo pipefail
 die() { echo "FAIL: $*" >&2; exit 1; }
 ok()  { echo "OK:  $*"; }
 say() { echo "==> $*"; }
+warn() { echo "WARN: $*" >&2; }
 
 [[ "${EUID:-$(id -u)}" -eq 0 ]] || exec sudo -E bash "$0" "$@"
 
@@ -31,18 +32,20 @@ else
   DC() { docker-compose -f "${COMPOSE}" "$@"; }
 fi
 
-if ! grep -q 'container_name: flaresolverr' "${COMPOSE}" 2>/dev/null \
-  && ! grep -q 'flaresolverr:' "${COMPOSE}" 2>/dev/null; then
-  say "Adding flaresolverr service to docker-compose.yml"
+compose_valid() {
+  DC config >/dev/null 2>&1
+}
+
+patch_compose() {
   python3 - "${COMPOSE}" "${TZ}" <<'PY'
+import re
 import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
 tz = sys.argv[2]
 text = path.read_text()
-if "flaresolverr:" in text:
-    sys.exit(0)
+
 block = f"""
   flaresolverr:
     image: flaresolverr/flaresolverr
@@ -57,22 +60,80 @@ block = f"""
     networks:
       - boxarr-net
 """
-marker = "\nnetworks:"
-if marker not in text:
-    die_msg = "could not find networks: block in compose"
-    raise SystemExit(die_msg)
-path.write_text(text.replace(marker, block + marker, 1))
+
+# Repair earlier broken patch (flaresolverr inserted under a service "networks:" key)
+if re.search(r"(?m)^    networks:\n  flaresolverr:", text):
+    text = text.replace(
+        "    networks:\n  flaresolverr:",
+        "    networks:\n      - boxarr-net\n\n  flaresolverr:",
+        1,
+    )
+
+# Drop flaresolverr blocks so we can re-insert cleanly
+text = re.sub(r"(?ms)^  flaresolverr:\n(?:^    .*\n)*", "", text)
+
+if re.search(r"(?m)^  flaresolverr:", text):
+    path.write_text(text)
+    print("flaresolverr already present")
+    sys.exit(0)
+
+m = re.search(r"(?m)^networks:\s*$", text)
+if not m:
+    raise SystemExit("could not find top-level networks: block in compose")
+
+text = text[: m.start()] + block + "\n" + text[m.start() :]
+path.write_text(text)
 print(f"patched {path}")
 PY
+}
+
+backup_compose() {
+  cp -a "${COMPOSE}" "${COMPOSE}.bak.$(date +%s)"
+}
+
+say "Repairing / patching docker-compose.yml for FlareSolverr"
+backup_compose
+patch_compose
+
+if ! compose_valid; then
+  warn "compose still invalid — restoring latest backup"
+  latest="$(ls -t "${COMPOSE}".bak.* 2>/dev/null | head -1 || true)"
+  [[ -n "${latest}" ]] && cp -a "${latest}" "${COMPOSE}"
+  say "Starting FlareSolverr via docker run (compose left unchanged)"
+  USE_RUN=1
 else
-  ok "flaresolverr already in compose"
+  USE_RUN=0
 fi
 
 docker rm -f flaresolverr 2>/dev/null || true
 
 say "Starting FlareSolverr"
-DC pull flaresolverr 2>/dev/null || true
-DC up -d flaresolverr
+if compose_valid && grep -q '^  flaresolverr:' "${COMPOSE}"; then
+  DC pull flaresolverr 2>/dev/null || true
+  DC up -d flaresolverr || {
+    warn "compose up failed — falling back to docker run"
+    docker run -d \
+      --name flaresolverr \
+      --restart unless-stopped \
+      --network boxarr-net \
+      -e LOG_LEVEL=info \
+      -e "TZ=${TZ}" \
+      -e CAPTCHA_SOLVER=none \
+      -p 8191:8191 \
+      flaresolverr/flaresolverr
+  }
+else
+  docker network inspect boxarr-net >/dev/null 2>&1 || docker network create boxarr-net
+  docker run -d \
+    --name flaresolverr \
+    --restart unless-stopped \
+    --network boxarr-net \
+    -e LOG_LEVEL=info \
+    -e "TZ=${TZ}" \
+    -e CAPTCHA_SOLVER=none \
+    -p 8191:8191 \
+    flaresolverr/flaresolverr
+fi
 
 CFG="${SCRIPT_DIR}/configure-prowlarr-flaresolverr.sh"
 if [[ ! -f "${CFG}" ]]; then
