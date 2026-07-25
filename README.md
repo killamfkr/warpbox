@@ -8,6 +8,7 @@ One-shot installer for a **Plex request stack** on [ZimaOS](https://www.zimaspac
 | **Prowlarr** | Torrent indexers |
 | **TorBox** | Cloud downloads via host **rclone** mount |
 | **Seerr** | Friend requests (optional) |
+| **FlareSolverr** | Cloudflare bypass for Prowlarr indexers (optional tag) |
 
 Designed for ZimaOS where **Docker FUSE propagation fails** — TorBox is mounted on the **host** with **systemd** so it survives reboots.
 
@@ -41,7 +42,7 @@ The installer:
 2. Writes `rclone.conf` for TorBox WebDAV
 3. Mounts TorBox at `/DATA/Media/torbox`
 4. Installs **`boxarr-torbox-mount.service`** (rclone **starts on boot**)
-5. Starts Boxarr, Prowlarr, Prowlarr torrent proxy, and Seerr
+5. Starts Boxarr, Prowlarr, Prowlarr torrent proxy, FlareSolverr, and Seerr
 
 ### After install
 
@@ -109,6 +110,7 @@ All scripts live in [`scripts/`](scripts/). Run as root on ZimaOS.
 | [`show-seerr-key.sh`](scripts/show-seerr-key.sh) | Print Seerr API key + connection cheat sheet |
 | [`test-torbox-submit.sh`](scripts/test-torbox-submit.sh) | Test TorBox API magnet submit |
 | [`install-prowlarr-proxy.sh`](scripts/install-prowlarr-proxy.sh) | Reinstall Prowlarr torrent proxy |
+| [`install-flaresolverr.sh`](scripts/install-flaresolverr.sh) | Add/repair FlareSolverr + Prowlarr proxy config |
 
 Example:
 
@@ -148,9 +150,15 @@ Boxarr searches with Usenet indexer IDs. The torrent proxy fixes this — Boxarr
 
 ### “All indexer proxies are unavailable due to failures”
 
-This is **Prowlarr → Settings → Indexer Proxies** (FlareSolverr, etc.) — **not** `boxarr-prowlarr-proxy`.
+Usually a broken **FlareSolverr** entry in Prowlarr → Settings → Indexer Proxies.
 
-For TPB/simple indexers: delete the FlareSolverr entry in **Indexer Proxies**. You don’t need it.
+**Repair the stack FlareSolverr service:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/boxarr-zimaos/scripts/install-flaresolverr.sh | sudo bash
+```
+
+For TPB-only setups you can delete the proxy in Prowlarr instead — TPB does not need FlareSolverr.
 
 Full guide: **[docs/prowlarr-troubleshooting.md](docs/prowlarr-troubleshooting.md)**
 

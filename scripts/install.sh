@@ -9,6 +9,7 @@
 #   - Boxarr + Prowlarr + Seerr (docker compose)
 #   - TorBox host rclone mount (ZimaOS-safe; no Docker FUSE)
 #   - Prowlarr torrent proxy (fixes Boxarr usenet-only search bug)
+#   - FlareSolverr (Prowlarr indexer proxy for Cloudflare indexers)
 #   - systemd boxarr-torbox-mount.service (rclone starts on boot)
 #
 # REQUIREMENTS: SSH as root, Developer Mode, TorBox + TMDB API keys
@@ -18,6 +19,7 @@
 # curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/boxarr-zimaos/scripts/install.sh -o /tmp/install.sh && sed -i 's/\r$//' /tmp/install.sh && chmod +x /tmp/install.sh && sudo TORBOX_API_KEY='YOUR_TORBOX_KEY' TMDB_API_KEY='YOUR_TMDB_KEY' bash /tmp/install.sh
 #
 # Skip Seerr:  INSTALL_SEERR=0 bash /tmp/install.sh
+# Skip FlareSolverr:  INSTALL_FLARESOLVERR=0 bash /tmp/install.sh
 # =============================================================================
 
 set -euo pipefail
@@ -57,6 +59,7 @@ LIBRARY="${BASE}/Media/library"
 PROWLARR_PROXY_URL="http://boxarr-prowlarr-proxy:9697"
 
 INSTALL_SEERR="${INSTALL_SEERR:-1}"
+INSTALL_FLARESOLVERR="${INSTALL_FLARESOLVERR:-1}"
 PUID="${BOXARR_PUID:-1000}"
 PGID="${BOXARR_PGID:-1000}"
 TZ="${TZ:-Etc/UTC}"
@@ -155,6 +158,23 @@ if [[ "${INSTALL_SEERR}" == "1" ]]; then
       - boxarr-net"
 fi
 
+FLARESOLVERR_BLOCK=""
+if [[ "${INSTALL_FLARESOLVERR}" == "1" ]]; then
+  FLARESOLVERR_BLOCK="
+  flaresolverr:
+    image: flaresolverr/flaresolverr
+    container_name: flaresolverr
+    restart: unless-stopped
+    environment:
+      LOG_LEVEL: info
+      TZ: \"${TZ}\"
+      CAPTCHA_SOLVER: none
+    ports:
+      - \"8191:8191\"
+    networks:
+      - boxarr-net"
+fi
+
 say "Writing docker-compose.yml"
 cat > "${INSTALL_DIR}/docker-compose.yml" <<EOF
 services:
@@ -203,6 +223,7 @@ services:
       - "9696:9696"
     networks:
       - boxarr-net
+${FLARESOLVERR_BLOCK}
 ${SEERR_BLOCK}
 
 networks:
@@ -220,7 +241,7 @@ DC config >/dev/null || die "invalid docker-compose.yml"
 # --- stop old stack ---
 say "Stopping old containers"
 DC down 2>/dev/null || true
-for c in boxarr boxarr-rclone boxarr-prowlarr boxarr-seerr boxarr-prowlarr-proxy; do
+for c in boxarr boxarr-rclone boxarr-prowlarr boxarr-seerr boxarr-prowlarr-proxy flaresolverr; do
   docker rm -f "$c" 2>/dev/null || true
 done
 docker ps -a --format '{{.Names}}' | grep -E '^boxarr-prowlarr-proxy' | xargs -r docker rm -f 2>/dev/null || true
@@ -287,6 +308,17 @@ chown -R 1000:1000 "${SEERR_CFG}"
 DC up -d
 sleep 12
 
+if [[ "${INSTALL_FLARESOLVERR}" == "1" ]]; then
+  say "Configuring Prowlarr FlareSolverr indexer proxy"
+  CFG_SCRIPT="${SCRIPT_DIR}/configure-prowlarr-flaresolverr.sh"
+  if [[ ! -f "${CFG_SCRIPT}" ]]; then
+    curl -fsSL "${RAW_BASE}/configure-prowlarr-flaresolverr.sh" -o /tmp/configure-prowlarr-flaresolverr.sh
+    CFG_SCRIPT="/tmp/configure-prowlarr-flaresolverr.sh"
+  fi
+  chmod +x "${CFG_SCRIPT}"
+  bash "${CFG_SCRIPT}" || warn "FlareSolverr Prowlarr config failed — run install-flaresolverr.sh later"
+fi
+
 # --- report ---
 IP="$( (hostname -I 2>/dev/null || true) | awk '{print $1}')"
 IP="${IP:-<your-zima-ip>}"
@@ -294,7 +326,7 @@ IP="${IP:-<your-zima-ip>}"
 echo
 echo "============================================"
 DC ps
-docker ps --format 'table {{.Names}}\t{{.Status}}' | grep -E 'boxarr-prowlarr-proxy|NAMES' || true
+docker ps --format 'table {{.Names}}\t{{.Status}}' | grep -E 'boxarr-prowlarr-proxy|flaresolverr|NAMES' || true
 echo "============================================"
 echo
 
@@ -338,13 +370,12 @@ echo "    Radarr:  http://boxarr:8080/radarr"
 echo "  Set quality profile + root folder on each. Docs: docs/seerr-setup.md"
 echo
 echo "Next steps:"
-echo "  1. Prowlarr http://${IP}:9696 — add TPB (+ optional indexers; avoid YTS if magnets fail)"
+echo "  1. Prowlarr http://${IP}:9696 — add indexers (TPB; tag flaresolverr for Cloudflare sites)"
 echo "  2. Boxarr http://${IP}:8181 — Settings → TorBox: paste API key if empty"
 echo "  3. Seerr http://${IP}:5055 — see docs/seerr-setup.md (Sonarr + Radarr → Boxarr)"
 echo
 echo "After reboot, TorBox remounts automatically (systemd boxarr-torbox-mount)."
-echo "  sudo systemctl status boxarr-torbox-mount"
-echo "  cd ${INSTALL_DIR} && docker compose up -d   # if containers did not auto-start"
+echo "  FlareSolverr + stack: cd ${INSTALL_DIR} && docker compose up -d"
 echo
 echo "Docs: https://github.com/killamfkr/warpbox/tree/boxarr-zimaos"
 echo

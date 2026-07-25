@@ -91,10 +91,14 @@ else
   echo "MISS boxarr-prowlarr-proxy (Boxarr needs this for torrent-only Prowlarr)"
 fi
 echo
-echo "=== note: Prowlarr 'Indexer Proxies' health warning ==="
-echo "If System shows 'All indexer proxies are unavailable' — that's FlareSolverr etc."
-echo "in Prowlarr Settings → Indexer Proxies. Delete it if you only use TPB."
-echo "See: docs/prowlarr-troubleshooting.md"
+echo "=== flaresolverr (Prowlarr indexer proxy) ==="
+if docker ps --format '{{.Names}}' | grep -qx flaresolverr; then
+  echo "OK  flaresolverr"
+  docker run --rm --network boxarr-net curlimages/curl:latest -sf http://flaresolverr:8191/ 2>/dev/null \
+    | head -c 120 || echo "WARN: flaresolverr not responding on :8191"
+else
+  echo "MISS flaresolverr — run install-flaresolverr.sh"
+fi
 echo
 
 echo "=== failed torrent submits ==="
