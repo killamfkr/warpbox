@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Install/enable TorBox rclone mount to start automatically on boot (ZimaOS).
 #
-# curl -fsSL .../enable-rclone-startup.sh | sudo bash
+# Preferred (downloads script to disk first — works when systemd unit is missing):
+#   curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/cursor/fix-invalid-magnet-proxy-1b99/scripts/enable-rclone-startup.sh -o /tmp/enable-rclone-startup.sh
+#   sudo bash /tmp/enable-rclone-startup.sh
 
 set -euo pipefail
 
@@ -11,18 +13,19 @@ say() { echo "==> $*"; }
 
 [[ "${EUID:-$(id -u)}" -eq 0 ]] || exec sudo -E bash "$0" "$@"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LIB="${SCRIPT_DIR}/lib-rclone-mount.sh"
-if [[ ! -f "${LIB}" ]]; then
-  curl -fsSL "https://raw.githubusercontent.com/killamfkr/warpbox/cursor/fix-invalid-magnet-proxy-1b99/scripts/lib-rclone-mount.sh" \
-    -o /tmp/lib-rclone-mount.sh
-  LIB="/tmp/lib-rclone-mount.sh"
-fi
-# shellcheck source=lib-rclone-mount.sh
+command -v systemctl >/dev/null 2>&1 || die "systemctl not found — ZimaOS needs Developer Mode + SSH"
+
+RAW_BASE="${WARPBOX_RAW_BASE:-https://raw.githubusercontent.com/killamfkr/warpbox/cursor/fix-invalid-magnet-proxy-1b99/scripts}"
+LIB="/tmp/lib-rclone-mount.sh"
+curl -fsSL "${RAW_BASE}/lib-rclone-mount.sh" -o "${LIB}"
+# shellcheck source=/dev/null
 . "${LIB}"
 
 rclone_mount_paths
-[[ -f "${RCLONE_APPDATA}/rclone.conf" ]] || die "missing ${RCLONE_APPDATA}/rclone.conf"
+say "TorBox mount: ${TORBOX_MOUNT}"
+say "rclone config: ${RCLONE_APPDATA}/rclone.conf"
+
+[[ -f "${RCLONE_APPDATA}/rclone.conf" ]] || die "missing ${RCLONE_APPDATA}/rclone.conf — configure TorBox in Boxarr first"
 
 grep -q '^user_allow_other' /etc/fuse.conf 2>/dev/null || \
   echo "user_allow_other" >> /etc/fuse.conf
@@ -32,14 +35,27 @@ if ! rclone_mount_bin; then
   curl -fsSL https://rclone.org/install.sh | bash
   rclone_mount_bin || die "rclone not found after install"
 fi
+ok "rclone binary: ${RCLONE_BIN}"
 
-say "Installing systemd unit (starts on boot)"
+say "Writing /etc/systemd/system/boxarr-torbox-mount.service"
 rclone_mount_write_systemd_unit
+[[ -f /etc/systemd/system/boxarr-torbox-mount.service ]] || \
+  die "systemd unit was not written — check disk permissions"
+
+systemctl daemon-reload
+systemctl enable boxarr-torbox-mount.service
+ok "enabled boxarr-torbox-mount.service for boot"
 
 say "Starting mount now"
-systemctl start boxarr-torbox-mount.service
+systemctl start boxarr-torbox-mount.service || {
+  echo "--- systemctl status ---" >&2
+  systemctl status boxarr-torbox-mount.service --no-pager -l 2>&1 | tail -25 >&2 || true
+  echo "--- mount.log ---" >&2
+  tail -20 "${RCLONE_APPDATA}/mount.log" 2>/dev/null || true
+  die "systemctl start failed"
+}
 
-if rclone_mount_wait_nonempty 15; then
+if rclone_mount_wait_nonempty 20; then
   sample="$(ls -A "${TORBOX_MOUNT}" 2>/dev/null | head -3 | tr '\n' ' ')"
   ok "TorBox mounted at ${TORBOX_MOUNT}: ${sample}"
 else
@@ -50,7 +66,6 @@ enabled="$(systemctl is-enabled boxarr-torbox-mount.service 2>/dev/null || echo 
 active="$(systemctl is-active boxarr-torbox-mount.service 2>/dev/null || echo unknown)"
 ok "boxarr-torbox-mount.service enabled=${enabled} active=${active}"
 echo
-echo "Useful commands:"
+echo "After reboot, verify with:"
 echo "  sudo systemctl status boxarr-torbox-mount"
-echo "  sudo systemctl restart boxarr-torbox-mount"
-echo "  tail -f ${RCLONE_APPDATA}/mount.log"
+echo "  ls ${TORBOX_MOUNT}"
