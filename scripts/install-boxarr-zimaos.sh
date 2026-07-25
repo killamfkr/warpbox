@@ -166,6 +166,13 @@ chown -R "${PUID}:${PGID}" "${BOXARR_APPDATA}" "${RCLONE_APPDATA}" \
 chown -R "${SEERR_UID}:${SEERR_GID}" "${SEERR_APPDATA}"
 chmod -R u+rwX,g+rwX "${LIBRARY_ROOT}" "${TORBOX_MOUNT}" "${RCLONE_APPDATA}" "${SEERR_APPDATA}"
 
+# ZimaOS: FUSE mount inside rclone container must propagate to host so boxarr sees files
+echo "==> Preparing host mount propagation"
+for mp in "${TORBOX_MOUNT}" "${LIBRARY_ROOT}"; do
+  mount --bind "${mp}" "${mp}" 2>/dev/null || true
+  mount --make-rshared "${mp}" 2>/dev/null || true
+done
+
 FUSE_CONF="/etc/fuse.conf"
 if [[ -f "${FUSE_CONF}" ]]; then
   grep -q '^user_allow_other' "${FUSE_CONF}" || \
@@ -298,6 +305,16 @@ DC pull
 echo "==> Removing any previous failed boxarr containers"
 for c in boxarr boxarr-rclone boxarr-prowlarr boxarr-seerr; do
   docker rm -f "${c}" 2>/dev/null || true
+done
+
+echo "==> Starting rclone (must mount before boxarr)"
+DC up -d boxarr-rclone
+echo "    waiting for TorBox mount..."
+for _ in $(seq 1 45); do
+  docker ps --format '{{.Names}}' | grep -qx boxarr-rclone || break
+  [[ -n "$(ls -A "${TORBOX_MOUNT}" 2>/dev/null)" ]] && break
+  docker logs boxarr-rclone 2>&1 | grep -qi 'unknown command' && die "rclone command broken — re-download install script"
+  sleep 2
 done
 
 echo "==> Starting Prowlarr"
