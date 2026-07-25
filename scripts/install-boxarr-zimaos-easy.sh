@@ -191,6 +191,7 @@ services:
     image: rclone/rclone:latest
     container_name: boxarr-rclone
     restart: unless-stopped
+    privileged: true
     cap_add:
       - SYS_ADMIN
     devices:

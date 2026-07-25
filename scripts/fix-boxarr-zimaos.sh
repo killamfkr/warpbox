@@ -179,13 +179,28 @@ for i in $(seq 1 45); do
 done
 
 if [[ "${mounted}" -eq 0 ]]; then
+  warn "compose rclone mount empty — trying host mount fallback"
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  if [[ -f "${SCRIPT_DIR}/mount-torbox-host.sh" ]]; then
+    bash "${SCRIPT_DIR}/mount-torbox-host.sh" && mounted=1
+  else
+    curl -fsSL "https://raw.githubusercontent.com/killamfkr/warpbox/cursor/casaos-install-script-1b99/scripts/mount-torbox-host.sh" -o /tmp/mount-torbox.sh
+    sed -i 's/\r$//' /tmp/mount-torbox.sh
+    chmod +x /tmp/mount-torbox.sh
+    bash /tmp/mount-torbox.sh && mounted=1
+  fi
+fi
+
+if [[ "${mounted}" -eq 0 ]]; then
   echo "--- rclone logs ---"
-  docker logs boxarr-rclone --tail 30
+  docker logs boxarr-rclone --tail 30 2>/dev/null || true
   echo "--- host mount ---"
   ls -la "${TORBOX_MOUNT}" || true
-  echo "--- propagation ---"
-  findmnt -T "${TORBOX_MOUNT}" 2>/dev/null || true
-  die "TorBox mount still empty at ${TORBOX_MOUNT}"
+  echo "--- fuse mounts ---"
+  findmnt -t fuse.rclone 2>/dev/null || findmnt | grep -i fuse || true
+  echo "--- inside container (if running) ---"
+  docker run --rm --pid container:boxarr-rclone --privileged alpine ls -la /proc/1/root/data 2>/dev/null | head -10 || true
+  die "TorBox mount still empty at ${TORBOX_MOUNT} — run: curl -fsSL .../mount-torbox-host.sh | sudo bash"
 fi
 ok "boxarr-rclone running — $(ls "${TORBOX_MOUNT}" | head -3 | tr '\n' ' ')..."
 

@@ -54,6 +54,15 @@ if text == before:
     print("WARN: could not find torbox volume lines to patch", file=sys.stderr)
     sys.exit(2)
 
+# Ensure privileged mode for FUSE on ZimaOS
+if "boxarr-rclone:" in text and "privileged:" not in text:
+    text = re.sub(
+        r"(  boxarr-rclone:\n    image: rclone/rclone:latest\n)",
+        r"\1    privileged: true\n",
+        text,
+        count=1,
+    )
+
 path.write_text(text)
 print(f"patched {path}")
 PY
