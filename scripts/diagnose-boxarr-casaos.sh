@@ -99,6 +99,12 @@ if [[ -f /DATA/AppData/boxarr/boxarr.db ]]; then
   sqlite3 /DATA/AppData/boxarr/boxarr.db \
     "SELECT substr(fail_message,1,100) FROM jobs WHERE protocol='torrent' AND state='failed' ORDER BY id DESC LIMIT 1;" 2>/dev/null \
     | sed 's/^/last error: /' || true
+  CACHED_CD="$(sqlite3 /DATA/AppData/boxarr/boxarr.db \
+    "SELECT value FROM settings WHERE key='torbox.cooldown_until' LIMIT 1;" 2>/dev/null || true)"
+  if [[ -n "${CACHED_CD}" ]]; then
+    echo "WARN boxarr cached cooldown_until=${CACHED_CD}"
+    echo "      If torbox.app shows no cooldown: clear-boxarr-cooldown.sh"
+  fi
 fi
 echo
 
