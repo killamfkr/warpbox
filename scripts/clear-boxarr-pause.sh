@@ -162,7 +162,9 @@ echo
 
 if [[ "${TB_COOLDOWN_STATE}" == "active" ]] && [[ "${FORCE}" -eq 0 ]]; then
   echo "FAIL: TorBox account cooldown is still active until ${TB_COOLDOWN}."
-  echo "      Wait it out, or use --force to clear Boxarr's cache anyway (submits will still fail until TorBox clears)."
+  echo "      Boxarr cannot submit until TorBox clears it (~24h after rate limit)."
+  echo "      Run freeze-boxarr-cooldown.sh to stop pending retries."
+  echo "      Fix proxy + disable YTS before cooldown ends — do not search/grab until Clear."
   exit 1
 fi
 

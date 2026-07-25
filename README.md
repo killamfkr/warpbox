@@ -116,6 +116,7 @@ All scripts live in [`scripts/`](scripts/). Run as root on ZimaOS.
 | [`diagnose.sh`](scripts/diagnose.sh) | Quick health check |
 | [`clear-boxarr-pause.sh`](scripts/clear-boxarr-pause.sh) | Diagnose/clear Boxarr paused state (cooldown, daily cap, backoff) |
 | [`clear-boxarr-cooldown.sh`](scripts/clear-boxarr-cooldown.sh) | Alias for `clear-boxarr-pause.sh` |
+| [`freeze-boxarr-cooldown.sh`](scripts/freeze-boxarr-cooldown.sh) | Stop Boxarr retries during active TorBox cooldown |
 | [`show-seerr-key.sh`](scripts/show-seerr-key.sh) | Print Seerr API key + connection cheat sheet |
 | [`test-torbox-submit.sh`](scripts/test-torbox-submit.sh) | Test TorBox API magnet submit |
 | [`diagnose-boxarr-magnet.sh`](scripts/diagnose-boxarr-magnet.sh) | Diagnose TorBox invalid magnet errors |
@@ -161,6 +162,20 @@ Then hard-refresh Boxarr in your browser. If grabs still fail, test TorBox direc
 ```bash
 curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/boxarr-zimaos/scripts/test-torbox-submit.sh | sudo bash
 ```
+
+### Boxarr hit a real ~24h TorBox cooldown (downloads paused, DMM still works)
+
+Invalid magnet retries and auto-search can trigger a **real** TorBox account cooldown (~24h). DMM may still work for cached torrents; **new Boxarr submits are blocked** until it clears.
+
+**Stop the retry storm now:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/boxarr-zimaos/scripts/freeze-boxarr-cooldown.sh -o /tmp/freeze-boxarr-cooldown.sh
+sudo bash /tmp/freeze-boxarr-cooldown.sh
+```
+
+**Before cooldown ends**, fix magnets (proxy + disable YTS, enable TPB). **Do not search or grab** in Boxarr until the dashboard shows **TorBox cooldown: Clear**.
+
 
 ### Invalid Magnet Link (TorBox rejects magnet)
 

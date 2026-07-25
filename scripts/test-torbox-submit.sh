@@ -32,12 +32,44 @@ ME="$(curl -sf -H "Authorization: Bearer ${KEY}" \
 }
 echo "${ME}" | python3 -c "
 import json,sys
+from datetime import datetime, timezone
 d=json.load(sys.stdin).get('data',{})
+cd=(d.get('cooldown_until') or '').strip()
+active=False
+if cd:
+    try:
+        until=datetime.fromisoformat(cd.replace('Z','+00:00'))
+        if until.tzinfo is None: until=until.replace(tzinfo=timezone.utc)
+        active=until>datetime.now(timezone.utc)
+    except Exception: active=True
 print('  plan:', d.get('plan'), ' subscribed:', d.get('is_subscribed'))
-print('  cooldown_until:', d.get('cooldown_until') or '(none)')
+print('  cooldown_until:', cd or '(none)')
+print('  cooldown_active:', active)
 print('  total_downloaded:', d.get('total_downloaded'))
 " 2>/dev/null || echo "${ME}"
+
+COOLDOWN_ACTIVE="$(echo "${ME}" | python3 -c "
+import json,sys
+from datetime import datetime, timezone
+d=json.load(sys.stdin).get('data',{})
+cd=(d.get('cooldown_until') or '').strip()
+if not cd: print('no'); sys.exit()
+try:
+    until=datetime.fromisoformat(cd.replace('Z','+00:00'))
+    if until.tzinfo is None: until=until.replace(tzinfo=timezone.utc)
+    print('yes' if until>datetime.now(timezone.utc) else 'no')
+except Exception:
+    print('yes')
+" 2>/dev/null || echo "no")"
 echo
+
+if [[ "${COOLDOWN_ACTIVE}" == "yes" ]]; then
+  echo "=== 2. Submit test SKIPPED (account in cooldown) ==="
+  echo "TorBox is in cooldown — submitting a test magnet would not help and may worsen things."
+  echo "Run: freeze-boxarr-cooldown.sh"
+  echo "Wait for cooldown to clear, then fix proxy/indexers before retrying Boxarr."
+  exit 2
+fi
 
 echo "=== 2. Submit known-good magnet (Ubuntu ISO) ==="
 RESP="$(curl -s -w '\nHTTP_CODE:%{http_code}' -X POST \
