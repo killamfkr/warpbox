@@ -5,7 +5,7 @@
 set -u
 
 if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
-  echo "ERROR: run as root — use: curl -fsSL .../diagnose-boxarr-casaos.sh | sudo bash" >&2
+  echo "ERROR: run as root — use: curl -fsSL .../diagnose.sh | sudo bash" >&2
   exit 1
 fi
 
@@ -55,7 +55,7 @@ echo
 echo "=== TorBox rclone mount ==="
 if [[ -f /DATA/AppData/boxarr-rclone/mount-mode ]] && [[ "$(cat /DATA/AppData/boxarr-rclone/mount-mode 2>/dev/null)" == "host" ]]; then
   echo "mode: host (systemd boxarr-torbox-mount)"
-  systemctl is-enabled boxarr-torbox-mount.service 2>/dev/null | sed 's/^/boot: /' || echo "boot: not enabled — run enable-rclone-startup.sh"
+  systemctl is-enabled boxarr-torbox-mount.service 2>/dev/null | sed 's/^/boot: /' || echo "boot: not enabled — run scripts/enable-rclone-startup.sh"
   systemctl is-active boxarr-torbox-mount.service 2>/dev/null | sed 's/^/systemd: /' || echo "systemd: not installed"
 else
   echo "mode: docker (boxarr-rclone container)"
@@ -84,12 +84,17 @@ if [[ -f /DATA/AppData/boxarr-stack/docker-compose.yml ]]; then
 fi
 echo
 
-echo "=== prowlarr torrent proxy ==="
+echo "=== prowlarr torrent proxy (for Boxarr — NOT Indexer Proxies in Prowlarr UI) ==="
 if docker ps --format '{{.Names}}' | grep -qx boxarr-prowlarr-proxy; then
-  echo "OK  boxarr-prowlarr-proxy"
+  echo "OK  boxarr-prowlarr-proxy (Boxarr should use http://boxarr-prowlarr-proxy:9697)"
 else
   echo "MISS boxarr-prowlarr-proxy (Boxarr needs this for torrent-only Prowlarr)"
 fi
+echo
+echo "=== note: Prowlarr 'Indexer Proxies' health warning ==="
+echo "If System shows 'All indexer proxies are unavailable' — that's FlareSolverr etc."
+echo "in Prowlarr Settings → Indexer Proxies. Delete it if you only use TPB."
+echo "See: docs/prowlarr-troubleshooting.md"
 echo
 
 echo "=== failed torrent submits ==="
