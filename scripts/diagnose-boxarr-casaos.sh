@@ -55,6 +55,7 @@ echo
 echo "=== TorBox rclone mount ==="
 if [[ -f /DATA/AppData/boxarr-rclone/mount-mode ]] && [[ "$(cat /DATA/AppData/boxarr-rclone/mount-mode 2>/dev/null)" == "host" ]]; then
   echo "mode: host (systemd boxarr-torbox-mount)"
+  systemctl is-enabled boxarr-torbox-mount.service 2>/dev/null | sed 's/^/boot: /' || echo "boot: not enabled — run enable-rclone-startup.sh"
   systemctl is-active boxarr-torbox-mount.service 2>/dev/null | sed 's/^/systemd: /' || echo "systemd: not installed"
 else
   echo "mode: docker (boxarr-rclone container)"

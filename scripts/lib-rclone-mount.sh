@@ -144,15 +144,14 @@ rclone_mount_restart_host() {
   docker rm -f boxarr-rclone 2>/dev/null || true
   rclone_mount_unmount
 
-  if [[ -f /etc/systemd/system/boxarr-torbox-mount.service ]]; then
-    # Refresh unit in case rclone moved (e.g. /usr/local/bin after install)
-    rclone_mount_write_systemd_unit
-    if systemctl restart boxarr-torbox-mount.service; then
-      rclone_mount_wait_nonempty 30 && return 0
-    fi
-    echo "--- systemctl status ---" >&2
-    systemctl status boxarr-torbox-mount.service --no-pager -l 2>&1 | tail -20 >&2 || true
+  rclone_mount_bin || return 1
+  rclone_mount_write_systemd_unit
+
+  if systemctl restart boxarr-torbox-mount.service; then
+    rclone_mount_wait_nonempty 30 && return 0
   fi
+  echo "--- systemctl status ---" >&2
+  systemctl status boxarr-torbox-mount.service --no-pager -l 2>&1 | tail -20 >&2 || true
 
   rclone_mount_start_daemon || return 1
   rclone_mount_wait_nonempty 30
