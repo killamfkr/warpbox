@@ -14,8 +14,7 @@ DB="${BASE}/AppData/boxarr/boxarr.db"
 
 KEY="${TORBOX_API_KEY:-}"
 if [[ -z "${KEY}" ]] && [[ -f "${DB}" ]]; then
-  KEY="$(sqlite3 "${DB}" "SELECT value FROM settings WHERE key='torbox.api_token' LIMIT 1;" 2>/dev/null || true)"
-  [[ -z "${KEY}" ]] && KEY="$(sqlite3 "${DB}" "SELECT value FROM settings WHERE key LIKE 'torbox%' AND key LIKE '%token%' LIMIT 1;" 2>/dev/null || true)"
+  KEY="$(sqlite3 "${DB}" "SELECT value FROM settings WHERE key='torbox.token' LIMIT 1;" 2>/dev/null || true)"
 fi
 [[ -n "${KEY}" ]] || { echo "FAIL: set TORBOX_API_KEY or configure TorBox in Boxarr Settings"; exit 1; }
 
