@@ -23,6 +23,7 @@ curl -fsSL "https://raw.githubusercontent.com/killamfkr/warpbox/cursor/casaos-in
   -o "${PROXY_DIR}/prowlarr-torrent-proxy.py"
 
 docker rm -f boxarr-prowlarr-proxy 2>/dev/null || true
+docker ps -a --format '{{.Names}}' | grep -E '^boxarr-prowlarr-proxy' | xargs -r docker rm -f 2>/dev/null || true
 systemctl disable --now boxarr-prowlarr-proxy 2>/dev/null || true
 
 # Use boxarr-net so Boxarr container can reach the proxy by name
