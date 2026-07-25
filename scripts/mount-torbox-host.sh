@@ -91,8 +91,9 @@ mount_with_docker() {
 
 wait_for_mount() {
   for _ in $(seq 1 30); do
-    if [[ -n "$(ls -A "${TORBOX_MOUNT}" 2>/dev/null)" ]]; then
-      ok "TorBox mounted at ${TORBOX_MOUNT}: $(ls "${TORBOX_MOUNT}" | head -3 | tr '\n' ' ')"
+    sample="$(ls -A "${TORBOX_MOUNT}" 2>/dev/null | head -3 | tr '\n' ' ' || true)"
+    if [[ -n "${sample}" ]]; then
+      ok "TorBox mounted at ${TORBOX_MOUNT}: ${sample}"
       return 0
     fi
     sleep 2
@@ -100,8 +101,46 @@ wait_for_mount() {
   return 1
 }
 
+install_systemd_service() {
+  local unit="/etc/systemd/system/boxarr-torbox-mount.service"
+  say "Installing systemd service for boot persistence"
+  cat > "${unit}" <<EOF
+[Unit]
+Description=TorBox rclone mount for Boxarr
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=forking
+User=root
+ExecStartPre=-/usr/bin/fusermount -uz ${TORBOX_MOUNT}
+ExecStartPre=-/usr/bin/docker rm -f boxarr-rclone
+ExecStart=/usr/bin/rclone mount torbox: ${TORBOX_MOUNT} \\
+  --config ${RCLONE_APPDATA}/rclone.conf \\
+  --allow-other --allow-non-empty \\
+  --dir-cache-time 1h --vfs-cache-mode full --vfs-cache-max-size 50G \\
+  --cache-dir ${RCLONE_APPDATA}/cache \\
+  --uid ${PUID} --gid ${PGID} --umask 002 \\
+  --log-file ${RCLONE_APPDATA}/mount.log --log-level INFO \\
+  --daemon
+ExecStop=-/usr/bin/fusermount -uz ${TORBOX_MOUNT}
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  systemctl daemon-reload
+  systemctl enable boxarr-torbox-mount.service
+  ok "enabled boxarr-torbox-mount.service (starts on boot)"
+}
+
 # Prefer host rclone — Docker FUSE propagation is unreliable on ZimaOS
 if mount_with_host_rclone && wait_for_mount; then
+  echo host > "${RCLONE_APPDATA}/mount-mode"
+  install_systemd_service
+  echo
+  echo "Next: cd /DATA/AppData/boxarr-stack && docker compose up -d boxarr boxarr-prowlarr boxarr-seerr"
   exit 0
 fi
 
@@ -110,6 +149,7 @@ docker rm -f boxarr-rclone 2>/dev/null || true
 fusermount -uz "${TORBOX_MOUNT}" 2>/dev/null || true
 
 if mount_with_docker && wait_for_mount; then
+  echo docker > "${RCLONE_APPDATA}/mount-mode"
   exit 0
 fi
 
