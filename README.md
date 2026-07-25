@@ -10,6 +10,60 @@ So I built this. I've been using it for weeks and it works well enough that I wa
 
 ## Quick Start
 
+### CasaOS / ZimaOS (one-liner)
+
+SSH into your NAS and run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mainlink0435/warpbox/main/scripts/install-casaos-zimaos.sh | sudo bash
+```
+
+Non-interactive (pass your TorBox API key):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mainlink0435/warpbox/main/scripts/install-casaos-zimaos.sh | sudo TORBOX_API_KEY='your-key' bash
+```
+
+When it finishes, add Plex libraries pointing at `/DATA/Media/warpbox/movies` and `/DATA/Media/warpbox/tv`. If Plex runs in Docker, bind-mount `/DATA/Media/warpbox` into the Plex container.
+
+### Boxarr + rclone + Prowlarr (TorBox requests)
+
+Standalone stack with correct CasaOS permissions. **Copy this entire line** into the terminal:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/cursor/casaos-install-script-1b99/scripts/install-boxarr-casaos.sh -o /tmp/install-boxarr.sh && sed -i 's/\r$//' /tmp/install-boxarr.sh && chmod +x /tmp/install-boxarr.sh && sudo /tmp/install-boxarr.sh
+```
+
+With API keys (no prompts):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/killamfkr/warpbox/cursor/casaos-install-script-1b99/scripts/install-boxarr-casaos.sh -o /tmp/install-boxarr.sh && sed -i 's/\r$//' /tmp/install-boxarr.sh && chmod +x /tmp/install-boxarr.sh && sudo TORBOX_API_KEY='your-key' TMDB_API_KEY='your-tmdb-token' /tmp/install-boxarr.sh
+```
+
+Skip Seerr: add `INSTALL_SEERR=0` before `sudo`.
+
+Installs to `/DATA/AppData/boxarr-stack`. Auto-matches Plex LinuxServer UID if Plex is running.
+
+After install, add to **Plex (LinuxServer) → Settings → Volumes**:
+- `/DATA/Media/library` → `/mnt/library`
+- `/DATA/Media/torbox` → `/mnt/torbox`
+
+### SeerrBridge (Seerr → DMM automation)
+
+SeerrBridge automates Seerr/Overseerr requests through Debrid Media Manager. It officially supports **Real-Debrid only** (not TorBox). One-liner:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mainlink0435/warpbox/main/scripts/install-seerrbridge-casaos.sh | sudo bash
+```
+
+If Seerr runs in Docker on the same network, pass the network name so webhooks resolve:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mainlink0435/warpbox/main/scripts/install-seerrbridge-casaos.sh | sudo SEERR_DOCKER_NETWORK='your-seerr-network' bash
+```
+
+Dashboard: `http://<nas-ip>:3777` — configure Real-Debrid tokens and your Seerr API key there. Set the Seerr webhook to `http://<nas-ip>:8777/jellyseer-webhook/`.
+
 ### Docker Compose
 
 ```yaml
