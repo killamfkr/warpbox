@@ -21,7 +21,7 @@
 set -euo pipefail
 
 SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
-RAW_BASE="https://raw.githubusercontent.com/killamfkr/warpbox/cursor/casaos-install-script-1b99/scripts"
+RAW_BASE="https://raw.githubusercontent.com/killamfkr/warpbox/cursor/fix-invalid-magnet-proxy-1b99/scripts"
 
 say()  { echo "==> $*"; }
 ok()   { echo "OK:  $*"; }
@@ -225,62 +225,24 @@ docker ps -a --format '{{.Names}}' | grep -E '^boxarr-prowlarr-proxy' | xargs -r
 
 # --- host TorBox mount ---
 say "Mounting TorBox on host (rclone)"
-docker rm -f boxarr-rclone 2>/dev/null || true
-fusermount -uz "${TORBOX_MOUNT}" 2>/dev/null || umount -l "${TORBOX_MOUNT}" 2>/dev/null || true
+curl -fsSL "${RAW_BASE}/lib-rclone-mount.sh" -o /tmp/lib-rclone-mount.sh
+# shellcheck disable=SC1091
+. /tmp/lib-rclone-mount.sh
+export TORBOX_MOUNT="${TORBOX_MOUNT}" RCLONE_APPDATA="${RCLONE_CFG}" BOXARR_PUID="${PUID}" BOXARR_PGID="${PGID}"
+rclone_mount_paths
 
-if ! command -v rclone >/dev/null 2>&1; then
+docker rm -f boxarr-rclone 2>/dev/null || true
+if ! rclone_mount_bin; then
   say "Installing rclone on host"
   curl -fsSL https://rclone.org/install.sh | bash
+  rclone_mount_bin || die "rclone install failed"
 fi
 
-rclone mount "torbox:" "${TORBOX_MOUNT}" \
-  --config "${RCLONE_CFG}/rclone.conf" \
-  --allow-other --allow-non-empty \
-  --dir-cache-time 1h --vfs-cache-mode full --vfs-cache-max-size 50G \
-  --cache-dir "${RCLONE_CFG}/cache" \
-  --uid "${PUID}" --gid "${PGID}" --umask 002 \
-  --log-file "${RCLONE_CFG}/mount.log" --log-level INFO --daemon
-
-mounted=0
-for _ in $(seq 1 30); do
-  if [[ -n "$(ls -A "${TORBOX_MOUNT}" 2>/dev/null)" ]]; then
-    mounted=1
-    ok "TorBox mounted at ${TORBOX_MOUNT}"
-    break
-  fi
-  sleep 2
-done
-[[ "${mounted}" -eq 1 ]] || die "TorBox mount empty — see ${RCLONE_CFG}/mount.log"
-
-# systemd for boot
-cat > /etc/systemd/system/boxarr-torbox-mount.service <<EOF
-[Unit]
-Description=TorBox rclone mount for Boxarr
-After=network-online.target docker.service
-Wants=network-online.target
-
-[Service]
-Type=forking
-User=root
-ExecStartPre=-/usr/bin/fusermount -uz ${TORBOX_MOUNT}
-ExecStartPre=-/usr/bin/docker rm -f boxarr-rclone
-ExecStart=/usr/bin/rclone mount torbox: ${TORBOX_MOUNT} \\
-  --config ${RCLONE_CFG}/rclone.conf \\
-  --allow-other --allow-non-empty \\
-  --dir-cache-time 1h --vfs-cache-mode full --vfs-cache-max-size 50G \\
-  --cache-dir ${RCLONE_CFG}/cache \\
-  --uid ${PUID} --gid ${PGID} --umask 002 \\
-  --log-file ${RCLONE_CFG}/mount.log --log-level INFO --daemon
-ExecStop=-/usr/bin/fusermount -uz ${TORBOX_MOUNT}
-Restart=on-failure
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-EOF
-systemctl daemon-reload
-systemctl enable boxarr-torbox-mount.service >/dev/null
-ok "enabled boxarr-torbox-mount.service"
+if ! rclone_mount_restart_host; then
+  die "TorBox mount empty — see ${RCLONE_CFG}/mount.log"
+fi
+ok "TorBox mounted at ${TORBOX_MOUNT}"
+ok "enabled boxarr-torbox-mount.service (host rclone — not docker)"
 
 # --- start prowlarr, get key ---
 say "Starting Prowlarr"

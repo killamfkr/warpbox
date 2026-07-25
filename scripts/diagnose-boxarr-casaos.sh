@@ -52,11 +52,17 @@ echo "=== docker ps ==="
 docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' 2>&1 | grep -E 'boxarr|NAMES' || docker ps 2>&1
 echo
 
-echo "=== mount propagation ==="
+echo "=== TorBox rclone mount ==="
+if [[ -f /DATA/AppData/boxarr-rclone/mount-mode ]] && [[ "$(cat /DATA/AppData/boxarr-rclone/mount-mode 2>/dev/null)" == "host" ]]; then
+  echo "mode: host (systemd boxarr-torbox-mount)"
+  systemctl is-active boxarr-torbox-mount.service 2>/dev/null | sed 's/^/systemd: /' || echo "systemd: not installed"
+else
+  echo "mode: docker (boxarr-rclone container)"
+fi
 findmnt -T /DATA/Media/torbox 2>/dev/null || echo "findmnt unavailable"
 echo "host torbox entries: $(ls -A /DATA/Media/torbox 2>/dev/null | wc -l)"
 if docker ps --format '{{.Names}}' | grep -qx boxarr-rclone; then
-  echo "probe via alpine (should list TorBox folders if mount works):"
+  echo "probe via alpine (docker rclone — may be empty on ZimaOS):"
   docker run --rm -v /DATA/Media/torbox:/torbox:ro alpine ls /torbox 2>&1 | head -8 || true
 fi
 echo

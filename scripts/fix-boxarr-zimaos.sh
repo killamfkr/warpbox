@@ -153,41 +153,77 @@ for c in boxarr boxarr-rclone boxarr-prowlarr boxarr-seerr; do
   docker rm -f "${c}" 2>/dev/null || true
 done
 
-say "Starting rclone first"
-DC up -d boxarr-rclone
-say "Waiting for TorBox mount (up to 90s)..."
-mounted=0
-for i in $(seq 1 45); do
-  if docker ps --format '{{.Names}}' | grep -qx boxarr-rclone; then
-    if [[ -n "$(ls -A "${TORBOX_MOUNT}" 2>/dev/null)" ]]; then
-      mounted=1
-      break
-    fi
-    if docker logs boxarr-rclone 2>&1 | grep -qi 'unknown command'; then
-      die "rclone command broken in compose — re-run install-boxarr-zimaos-easy.sh"
-    fi
-    if docker logs boxarr-rclone 2>&1 | grep -qiE '401|not authenticated|password was incorrect'; then
-      docker logs boxarr-rclone --tail 15
-      die "TorBox auth failed — re-run with TORBOX_API_KEY=..."
-    fi
-  else
-    warn "boxarr-rclone not running"
-    docker logs boxarr-rclone --tail 15 2>&1 || true
-    die "boxarr-rclone failed to start"
-  fi
-  sleep 2
-done
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib-rclone-mount.sh
+if [[ -f "${SCRIPT_DIR}/lib-rclone-mount.sh" ]]; then
+  # shellcheck disable=SC1091
+  . "${SCRIPT_DIR}/lib-rclone-mount.sh"
+else
+  curl -fsSL "https://raw.githubusercontent.com/killamfkr/warpbox/cursor/fix-invalid-magnet-proxy-1b99/scripts/lib-rclone-mount.sh" \
+    -o /tmp/lib-rclone-mount.sh
+  # shellcheck disable=SC1091
+  . /tmp/lib-rclone-mount.sh
+fi
+rclone_mount_paths
 
-if [[ "${mounted}" -eq 0 ]]; then
-  warn "compose rclone mount empty — trying host mount fallback"
-  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  if [[ -f "${SCRIPT_DIR}/mount-torbox-host.sh" ]]; then
-    bash "${SCRIPT_DIR}/mount-torbox-host.sh" && mounted=1
+mounted=0
+use_host=0
+if rclone_mount_uses_host; then
+  use_host=1
+fi
+
+if [[ "${use_host}" -eq 1 ]]; then
+  say "Restarting host rclone mount (ZimaOS — not docker boxarr-rclone)"
+  if rclone_mount_restart_host; then
+    mounted=1
+    ok "host TorBox mount: $(ls "${TORBOX_MOUNT}" 2>/dev/null | head -3 | tr '\n' ' ')"
   else
-    curl -fsSL "https://raw.githubusercontent.com/killamfkr/warpbox/cursor/casaos-install-script-1b99/scripts/mount-torbox-host.sh" -o /tmp/mount-torbox.sh
-    sed -i 's/\r$//' /tmp/mount-torbox.sh
-    chmod +x /tmp/mount-torbox.sh
-    bash /tmp/mount-torbox.sh && mounted=1
+    warn "host rclone restart failed — trying mount-torbox-host.sh"
+    if [[ -f "${SCRIPT_DIR}/mount-torbox-host.sh" ]]; then
+      bash "${SCRIPT_DIR}/mount-torbox-host.sh" && mounted=1
+    else
+      curl -fsSL "https://raw.githubusercontent.com/killamfkr/warpbox/cursor/fix-invalid-magnet-proxy-1b99/scripts/mount-torbox-host.sh" -o /tmp/mount-torbox.sh
+      sed -i 's/\r$//' /tmp/mount-torbox.sh
+      chmod +x /tmp/mount-torbox.sh
+      bash /tmp/mount-torbox.sh && mounted=1
+    fi
+  fi
+else
+  say "Starting docker rclone (boxarr-rclone)"
+  DC up -d boxarr-rclone
+  say "Waiting for TorBox mount (up to 90s)..."
+  for i in $(seq 1 45); do
+    if docker ps --format '{{.Names}}' | grep -qx boxarr-rclone; then
+      if [[ -n "$(ls -A "${TORBOX_MOUNT}" 2>/dev/null)" ]]; then
+        mounted=1
+        break
+      fi
+      if docker logs boxarr-rclone 2>&1 | grep -qi 'unknown command'; then
+        die "rclone command broken in compose — re-run install-boxarr-zimaos-easy.sh"
+      fi
+      if docker logs boxarr-rclone 2>&1 | grep -qiE '401|not authenticated|password was incorrect'; then
+        docker logs boxarr-rclone --tail 15
+        die "TorBox auth failed — re-run with TORBOX_API_KEY=..."
+      fi
+    else
+      warn "boxarr-rclone not running"
+      docker logs boxarr-rclone --tail 15 2>&1 || true
+      die "boxarr-rclone failed to start"
+    fi
+    sleep 2
+  done
+
+  if [[ "${mounted}" -eq 0 ]]; then
+    warn "compose rclone mount empty — trying host mount fallback"
+    if [[ -f "${SCRIPT_DIR}/mount-torbox-host.sh" ]]; then
+      bash "${SCRIPT_DIR}/mount-torbox-host.sh" && mounted=1
+    else
+      curl -fsSL "https://raw.githubusercontent.com/killamfkr/warpbox/cursor/fix-invalid-magnet-proxy-1b99/scripts/mount-torbox-host.sh" -o /tmp/mount-torbox.sh
+      sed -i 's/\r$//' /tmp/mount-torbox.sh
+      chmod +x /tmp/mount-torbox.sh
+      bash /tmp/mount-torbox.sh && mounted=1
+    fi
+    use_host=1
   fi
 fi
 
@@ -200,12 +236,17 @@ if [[ "${mounted}" -eq 0 ]]; then
   findmnt -t fuse.rclone 2>/dev/null || findmnt | grep -i fuse || true
   echo "--- inside container (if running) ---"
   docker run --rm --pid container:boxarr-rclone --privileged alpine ls -la /proc/1/root/data 2>/dev/null | head -10 || true
-  die "TorBox mount still empty at ${TORBOX_MOUNT} — run: curl -fsSL .../mount-torbox-host.sh | sudo bash"
+  die "TorBox mount still empty at ${TORBOX_MOUNT} — run: curl -fsSL .../restart-rclone-mount.sh | sudo bash"
 fi
-ok "boxarr-rclone running — $(ls "${TORBOX_MOUNT}" | head -3 | tr '\n' ' ')..."
+
+if [[ "${use_host}" -eq 1 ]]; then
+  ok "TorBox mount active on host (systemd: boxarr-torbox-mount)"
+else
+  ok "boxarr-rclone running — $(ls "${TORBOX_MOUNT}" | head -3 | tr '\n' ' ')..."
+fi
 
 say "Starting rest of stack"
-if [[ -f "${RCLONE_APPDATA}/mount-mode" ]] && [[ "$(cat "${RCLONE_APPDATA}/mount-mode")" == "host" ]]; then
+if [[ "${use_host}" -eq 1 ]]; then
   DC up -d boxarr boxarr-prowlarr boxarr-seerr 2>/dev/null || DC up -d boxarr boxarr-prowlarr
   ok "started stack (rclone runs on host, not in compose)"
 else
@@ -230,15 +271,28 @@ for port_name in "8181:boxarr" "9696:prowlarr" "5055:seerr"; do
 done
 echo
 echo "--- logs (last 5 lines each) ---"
-for c in boxarr-rclone boxarr boxarr-prowlarr boxarr-seerr; do
+for c in boxarr boxarr-prowlarr boxarr-seerr; do
   docker ps -a --format '{{.Names}}' | grep -qx "$c" || continue
   echo "[$c]"
   docker logs "$c" --tail 5 2>&1
   echo
 done
+if [[ "${use_host}" -eq 0 ]]; then
+  docker ps -a --format '{{.Names}}' | grep -qx boxarr-rclone && {
+    echo "[boxarr-rclone]"
+    docker logs boxarr-rclone --tail 5 2>&1
+    echo
+  }
+fi
 
-if ! docker ps --format '{{.Names}}' | grep -qx boxarr-rclone; then
+if [[ "${use_host}" -eq 0 ]] && ! docker ps --format '{{.Names}}' | grep -qx boxarr-rclone; then
   die "boxarr-rclone still not running"
+fi
+
+if [[ "${use_host}" -eq 1 ]]; then
+  if ! rclone_mount_wait_nonempty 1; then
+    die "host TorBox mount is empty — run: curl -fsSL .../restart-rclone-mount.sh | sudo bash"
+  fi
 fi
 
 code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8181/ 2>/dev/null || echo 000)"
